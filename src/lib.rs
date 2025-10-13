@@ -19,6 +19,7 @@
 //! Color images are shared via Arc<dyn RgbImage>,
 use std::{
     fmt::{self, Debug, Formatter},
+    mem::MaybeUninit,
     num::NonZeroU32,
     sync::Arc,
 };
@@ -146,6 +147,43 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
     pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
         (self.0.width, self.0.height)
     }
+
+    pub fn from_interleaved(i: &GenericImage<[T; CHANNELS], 1>) -> Self
+    where
+        T: Copy,
+    {
+        let (width, height) = i.dimensions();
+        Self::from_flat_interleaved(i.flat_buffer(), (width, height))
+    }
+
+    pub fn from_flat_interleaved(v: &[T], (width, height): (NonZeroU32, NonZeroU32)) -> Self
+    where
+        T: Copy,
+    {
+        let len = width.get() as usize * height.get() as usize;
+        let mut write_buf_container = Arc::new_uninit_slice(len * CHANNELS);
+        let write_buf = Arc::get_mut(&mut write_buf_container).unwrap();
+        let mut next_read = 0;
+
+        let area = (width.get() * height.get()) as usize;
+        let write_offsets: [_; CHANNELS] = std::array::from_fn(|i| i * area);
+
+        for channel in 0..len {
+            for (i, write_offset) in write_offsets.iter().enumerate() {
+                unsafe {
+                    write_buf
+                        .get_unchecked_mut(channel + write_offset)
+                        .write(*v.get_unchecked(next_read + i));
+                }
+            }
+            next_read += CHANNELS;
+        }
+        GenericImage::<T, CHANNELS>::new_arc(
+            unsafe { write_buf_container.assume_init() },
+            width,
+            height,
+        )
+    }
 }
 
 impl<T> GenericImage<T, 1> {
@@ -155,7 +193,7 @@ impl<T> GenericImage<T, 1> {
     }
 }
 
-impl<const CHANNELS: usize, T> GenericImage<[T; CHANNELS], 1> {
+impl<const CHANNELS: usize, T: Copy> GenericImage<[T; CHANNELS], 1> {
     pub fn flat_buffer(&self) -> &[T] {
         // SAFETY: [u8; 3] has the same layout as 3 consecutive u8 values
         unsafe {
@@ -164,6 +202,35 @@ impl<const CHANNELS: usize, T> GenericImage<[T; CHANNELS], 1> {
                 self.len() * CHANNELS,
             )
         }
+    }
+
+    pub fn from_planar_image(i: &GenericImage<T, CHANNELS>) -> Self {
+        let (width, height) = i.dimensions();
+        Self::from_planar(i.buffers(), width, height)
+    }
+
+    pub fn from_planar(channels: [&[T]; CHANNELS], width: NonZeroU32, height: NonZeroU32) -> Self {
+        let len = width.get() as usize * height.get() as usize;
+        let mut channels = channels.map(|c| c.iter());
+
+        let mut data = Arc::new_uninit_slice(len);
+        let data_ptr = Arc::get_mut(&mut data).unwrap();
+        for i in 0..len {
+            let mut value = [MaybeUninit::<T>::uninit(); CHANNELS];
+
+            for (src, dst) in channels
+                .iter_mut()
+                .map(|c| c.next().unwrap())
+                .zip(value.iter_mut())
+            {
+                dst.write(*src);
+            }
+
+            data_ptr[i].write(value.map(|x| unsafe { x.assume_init() }));
+        }
+        let data = unsafe { data.assume_init() };
+
+        GenericImage::<[T; CHANNELS], 1>::new_arc(data, width, height)
     }
 }
 
