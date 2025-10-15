@@ -28,24 +28,20 @@ impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for ArcFact
     const VTABLE: &'static ImageVtable<T, CHANNELS> = {
         unsafe extern "C" fn make_mut<T: Clone, const CHANNELS: usize>(
             image: &mut UnsafeGenericImage<T, CHANNELS>,
-        ) -> *mut T {
+        ) {
             let mut arc = ManuallyDrop::new(unsafe {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptrs[0], image.data);
                 Arc::<[T]>::from_raw(ptr)
             });
 
-            if let Some(ptr) = Arc::get_mut(&mut arc) {
-                ptr.as_mut_ptr()
-            } else {
-                let mut new_data = Arc::<[T]>::from(&arc[..]);
+            if Arc::get_mut(&mut arc).is_none() {
+                let new_data = Arc::<[T]>::from(&arc[..]);
                 ManuallyDrop::into_inner(arc);
 
-                let ptr = Arc::get_mut(&mut new_data).expect("Just created, must be unique");
-                let r = ptr.as_mut_ptr();
                 let base_ptr = Arc::into_raw(new_data).cast::<T>();
                 let len_per_channel = (image.width.get() * image.height.get()) as usize;
-                image.ptrs = std::array::from_fn(|i| base_ptr.add(i * len_per_channel));
-                r
+
+                image.ptrs = std::array::from_fn(|i| unsafe { base_ptr.add(i * len_per_channel) });
             }
         }
         extern "C" fn clear_arc<T: Clone, const CHANNELS: usize>(

@@ -91,19 +91,21 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
     where
         T: Send + Sync,
     {
-        Self(UnsafeGenericImage::new_with_vtable(
-            ptrs,
-            width,
-            height,
-            vtable,
-            generic_field,
-        ))
+        unsafe {
+            Self(UnsafeGenericImage::new_with_vtable(
+                ptrs,
+                width,
+                height,
+                vtable,
+                generic_field,
+            ))
+        }
     }
 
     pub const fn len(&self) -> usize {
         assert!(self.0.width.get() <= usize::MAX as u32);
         assert!(self.0.height.get() <= usize::MAX as u32);
-        self.0.width.get() as usize * self.0.height.get() as usize * CHANNELS
+        self.0.width.get() as usize * self.0.height.get() as usize
     }
 
     pub const fn buffers(&self) -> [&[T]; CHANNELS] {
@@ -117,11 +119,13 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
         result
     }
 
-    pub fn make_mut(&mut self) -> &mut [T] {
+    pub fn make_mut(&mut self) -> [&mut [T]; CHANNELS] {
         unsafe {
-            let ptr = (self.0.vtable.make_mut)(&mut self.0);
+            (self.0.vtable.make_mut)(&mut self.0);
             let len = self.len();
-            std::slice::from_raw_parts_mut(ptr, len)
+            self.0
+                .ptrs
+                .map(|ptr| std::slice::from_raw_parts_mut(ptr as *mut T, len))
         }
     }
 
@@ -130,14 +134,14 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
         T: Clone,
     {
         if self.0.vtable.drop as usize == vec::clear_vec::<T, CHANNELS> as usize {
-            let size = self.len();
+            let size = self.len() * CHANNELS;
             let result =
                 unsafe { Vec::from_raw_parts(self.0.ptrs[0] as *mut _, size, self.0.data) };
             std::mem::forget(self);
             result
         } else {
             let buffers = self.buffers();
-            let mut result = Vec::with_capacity(self.len());
+            let mut result = Vec::with_capacity(self.len() * CHANNELS);
             for buf in buffers {
                 result.extend_from_slice(buf);
             }
@@ -238,7 +242,7 @@ impl<const CHANNELS: usize, T: Copy> GenericImage<[T; CHANNELS], 1> {
 pub struct ImageVtable<T: 'static, const CHANNELS: usize> {
     pub clone:
         unsafe extern "C" fn(&UnsafeGenericImage<T, CHANNELS>) -> UnsafeGenericImage<T, CHANNELS>,
-    pub make_mut: unsafe extern "C" fn(&mut UnsafeGenericImage<T, CHANNELS>) -> *mut T,
+    pub make_mut: unsafe extern "C" fn(&mut UnsafeGenericImage<T, CHANNELS>),
     pub drop: unsafe extern "C" fn(&mut UnsafeGenericImage<T, CHANNELS>),
 }
 
@@ -351,7 +355,7 @@ mod tests {
         let ptr_mut = image.make_mut();
 
         assert_eq!(
-            ptr_mut[..].as_ptr(),
+            ptr_mut[0][..].as_ptr(),
             pointer,
             "Should reuse the buffer if it was created by vec"
         );
@@ -367,7 +371,7 @@ mod tests {
         let ptr_mut = image.make_mut();
 
         assert_ne!(
-            ptr_mut[..].as_ptr(),
+            ptr_mut[0][..].as_ptr(),
             pointer,
             "Should reuse the buffer if it was created by vec"
         );
@@ -430,12 +434,18 @@ mod tests {
         ));
     }
 
-    fn test_entire_vtable<T: 'static + Default + Eq, const SIZE: usize>(
+    fn test_entire_vtable<T: 'static + Default + Eq + Debug, const SIZE: usize>(
         mut image: GenericImage<T, SIZE>,
     ) {
-        image.make_mut()[0] = T::default();
-        let mut clone = image.clone();
-        clone.make_mut()[0] = T::default();
+        for channel in image.make_mut() {
+            channel[0] = T::default();
+        }
+        let clone = image.clone();
+        for channel in image.make_mut() {
+            assert_eq!(channel[0], T::default());
+            channel[0] = T::default();
+        }
+
         assert_eq!(image, clone);
     }
 }

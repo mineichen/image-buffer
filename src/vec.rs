@@ -28,9 +28,9 @@ struct VecFactory;
 impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for VecFactory {
     const VTABLE: &'static ImageVtable<T, CHANNELS> = {
         unsafe extern "C" fn make_mut<T: Clone, const CHANNELS: usize>(
-            image: &mut UnsafeGenericImage<T, CHANNELS>,
-        ) -> *mut T {
-            image.ptrs[0] as *mut T
+            _image: &mut UnsafeGenericImage<T, CHANNELS>,
+        ) {
+            // Do nothing, as ptrs are exclusive if i have &mut ImutableVtable
         }
         &ImageVtable {
             make_mut,
