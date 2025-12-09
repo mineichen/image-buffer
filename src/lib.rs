@@ -25,6 +25,7 @@ use std::{
 };
 
 mod arc;
+mod dynamic;
 mod vec;
 
 pub type LumaImage<T> = GenericImage<T, 1>;
@@ -32,6 +33,8 @@ pub type RgbImageInterleaved<T> = GenericImage<[T; 3], 1>;
 pub type RgbaImageInterleaved<T> = GenericImage<[T; 4], 1>;
 pub type RgbImagePlanar<T> = GenericImage<T, 3>;
 pub type RgbaImagePlanar<T> = GenericImage<T, 4>;
+
+pub use dynamic::{DynamicImage, DynamicPixelKind};
 
 #[repr(transparent)]
 pub struct GenericImage<T: 'static, const CHANNELS: usize>(UnsafeGenericImage<T, CHANNELS>);
@@ -58,6 +61,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
     where
         T: Clone,
     {
+        let _ = const { CHANNELS.checked_sub(1).unwrap() };
         Self::new_vec(input, width, height)
     }
 
@@ -65,6 +69,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
     where
         T: Clone,
     {
+        let _ = const { CHANNELS.checked_sub(1).unwrap() };
         Self(UnsafeGenericImage::new_vec(input, width, height))
     }
 
@@ -72,6 +77,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
     where
         T: Clone,
     {
+        let _ = const { CHANNELS.checked_sub(1).unwrap() };
         Self(UnsafeGenericImage::new_arc(input, width, height))
     }
 
@@ -91,6 +97,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
     where
         T: Send + Sync,
     {
+        let _ = const { CHANNELS.checked_sub(1).unwrap() };
         unsafe {
             Self(UnsafeGenericImage::new_with_vtable(
                 ptrs,
@@ -148,6 +155,15 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
             result
         }
     }
+
+    pub fn width(&self) -> NonZeroU32 {
+        self.0.width
+    }
+
+    pub fn height(&self) -> NonZeroU32 {
+        self.0.height
+    }
+
     pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
         (self.0.width, self.0.height)
     }
@@ -214,12 +230,14 @@ impl<const CHANNELS: usize, T: Copy> GenericImage<[T; CHANNELS], 1> {
     }
 
     pub fn from_planar(channels: [&[T]; CHANNELS], width: NonZeroU32, height: NonZeroU32) -> Self {
+        let _ = const { CHANNELS.checked_sub(1).unwrap() };
+
         let len = width.get() as usize * height.get() as usize;
         let mut channels = channels.map(|c| c.iter());
 
         let mut data = Arc::new_uninit_slice(len);
         let data_ptr = Arc::get_mut(&mut data).unwrap();
-        for i in 0..len {
+        for dst in data_ptr {
             let mut value = [MaybeUninit::<T>::uninit(); CHANNELS];
 
             for (src, dst) in channels
@@ -230,7 +248,7 @@ impl<const CHANNELS: usize, T: Copy> GenericImage<[T; CHANNELS], 1> {
                 dst.write(*src);
             }
 
-            data_ptr[i].write(value.map(|x| unsafe { x.assume_init() }));
+            dst.write(value.map(|x| unsafe { x.assume_init() }));
         }
         let data = unsafe { data.assume_init() };
 
