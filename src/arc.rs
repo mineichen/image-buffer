@@ -1,8 +1,8 @@
 use std::{mem::ManuallyDrop, num::NonZeroU32, sync::Arc};
 
-use crate::{Factory, GenericImage, ImageVtable, UnsafeGenericImage};
+use crate::{Factory, Image, ImageVtable, UnsafeImage};
 
-impl<const CHANNELS: usize, T: 'static> UnsafeGenericImage<T, CHANNELS> {
+impl<const CHANNELS: usize, T: 'static> UnsafeImage<T, CHANNELS> {
     pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: Clone,
@@ -27,7 +27,7 @@ struct ArcFactory;
 impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for ArcFactory {
     const VTABLE: &'static ImageVtable<T, CHANNELS> = {
         unsafe extern "C" fn make_mut<T: Clone, const CHANNELS: usize>(
-            image: &mut UnsafeGenericImage<T, CHANNELS>,
+            image: &mut UnsafeImage<T, CHANNELS>,
         ) {
             let mut arc = ManuallyDrop::new(unsafe {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptrs[0], image.data);
@@ -45,7 +45,7 @@ impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for ArcFact
             }
         }
         extern "C" fn clear_arc<T: Clone, const CHANNELS: usize>(
-            image: &mut UnsafeGenericImage<T, CHANNELS>,
+            image: &mut UnsafeImage<T, CHANNELS>,
         ) {
             unsafe {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptrs[0], image.data);
@@ -54,13 +54,13 @@ impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for ArcFact
         }
 
         extern "C" fn clone_arc<T: Clone, const CHANNELS: usize>(
-            image: &UnsafeGenericImage<T, CHANNELS>,
-        ) -> UnsafeGenericImage<T, CHANNELS> {
+            image: &UnsafeImage<T, CHANNELS>,
+        ) -> UnsafeImage<T, CHANNELS> {
             let arc = ManuallyDrop::new(unsafe {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptrs[0], image.data);
                 Arc::<[T]>::from_raw(ptr)
             });
-            GenericImage::new_arc((*arc).clone(), image.width, image.height).0
+            Image::new_arc((*arc).clone(), image.width, image.height).0
         }
 
         &ImageVtable {
@@ -71,13 +71,13 @@ impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for ArcFact
     };
 }
 pub(crate) extern "C" fn clone_slice_into_arc<T: Clone, const CHANNELS: usize>(
-    image: &UnsafeGenericImage<T, CHANNELS>,
-) -> UnsafeGenericImage<T, CHANNELS> {
+    image: &UnsafeImage<T, CHANNELS>,
+) -> UnsafeImage<T, CHANNELS> {
     let buffer = unsafe {
         std::slice::from_raw_parts(
             image.ptrs[0],
             image.width.get() as usize * image.height.get() as usize * CHANNELS,
         )
     };
-    UnsafeGenericImage::new_arc(Arc::from(buffer), image.width, image.height)
+    UnsafeImage::new_arc(Arc::from(buffer), image.width, image.height)
 }

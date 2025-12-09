@@ -15,7 +15,7 @@
 //! - x=row y=col is more widely used in the analyzed examples
 //!
 //! # Genericity
-//! Gray images can easily be shared as Arc<GenericImage<1>>, as there is no confusion how the pixels are aligned
+//! Gray images can easily be shared as Arc<Image<1>>, as there is no confusion how the pixels are aligned
 //! Color images are shared via Arc<dyn RgbImage>,
 use std::{
     fmt::{self, Debug, Formatter},
@@ -28,25 +28,31 @@ mod arc;
 mod dynamic;
 mod vec;
 
-pub type LumaImage<T> = GenericImage<T, 1>;
-pub type RgbImageInterleaved<T> = GenericImage<[T; 3], 1>;
-pub type RgbaImageInterleaved<T> = GenericImage<[T; 4], 1>;
-pub type RgbImagePlanar<T> = GenericImage<T, 3>;
-pub type RgbaImagePlanar<T> = GenericImage<T, 4>;
+pub type LumaImage<T> = Image<T, 1>;
+pub type RgbImageInterleaved<T> = Image<[T; 3], 1>;
+pub type RgbaImageInterleaved<T> = Image<[T; 4], 1>;
+pub type RgbImagePlanar<T> = Image<T, 3>;
+pub type RgbaImagePlanar<T> = Image<T, 4>;
 
 pub use dynamic::{DynamicImage, DynamicPixelKind};
 
-#[repr(transparent)]
-pub struct GenericImage<T: 'static, const CHANNELS: usize>(UnsafeGenericImage<T, CHANNELS>);
+#[deprecated = "Use Image instead"]
+pub type GenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
 
-impl<T, const CHANNELS: usize> Clone for GenericImage<T, CHANNELS> {
+#[deprecated = "Use UnsafeImage instead"]
+pub type UnsafeGenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
+
+#[repr(transparent)]
+pub struct Image<T: 'static, const CHANNELS: usize>(UnsafeImage<T, CHANNELS>);
+
+impl<T, const CHANNELS: usize> Clone for Image<T, CHANNELS> {
     fn clone(&self) -> Self {
         Self(unsafe { (self.0.vtable.clone)(&self.0) })
     }
 }
 
 // Todo: Fixme, this is not correct
-impl<T: std::cmp::PartialEq, const CHANNELS: usize> PartialEq for GenericImage<T, CHANNELS> {
+impl<T: std::cmp::PartialEq, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
     fn eq(&self, other: &Self) -> bool {
         self.0.width == other.0.width
             && self.0.height == other.0.height
@@ -55,7 +61,7 @@ impl<T: std::cmp::PartialEq, const CHANNELS: usize> PartialEq for GenericImage<T
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
+impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
     #[deprecated = "Use eigher new_vec or new_arc"]
     pub fn new(input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
@@ -70,7 +76,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
         T: Clone,
     {
         let _ = const { CHANNELS.checked_sub(1).unwrap() };
-        Self(UnsafeGenericImage::new_vec(input, width, height))
+        Self(UnsafeImage::new_vec(input, width, height))
     }
 
     pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
@@ -78,7 +84,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
         T: Clone,
     {
         let _ = const { CHANNELS.checked_sub(1).unwrap() };
-        Self(UnsafeGenericImage::new_arc(input, width, height))
+        Self(UnsafeImage::new_arc(input, width, height))
     }
 
     /// Don't use this method unless you need a custom image.
@@ -99,7 +105,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
     {
         let _ = const { CHANNELS.checked_sub(1).unwrap() };
         unsafe {
-            Self(UnsafeGenericImage::new_with_vtable(
+            Self(UnsafeImage::new_with_vtable(
                 ptrs,
                 width,
                 height,
@@ -168,7 +174,7 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
         (self.0.width, self.0.height)
     }
 
-    pub fn from_interleaved(i: &GenericImage<[T; CHANNELS], 1>) -> Self
+    pub fn from_interleaved(i: &Image<[T; CHANNELS], 1>) -> Self
     where
         T: Copy,
     {
@@ -198,22 +204,18 @@ impl<const CHANNELS: usize, T: 'static> GenericImage<T, CHANNELS> {
             }
             next_read += CHANNELS;
         }
-        GenericImage::<T, CHANNELS>::new_arc(
-            unsafe { write_buf_container.assume_init() },
-            width,
-            height,
-        )
+        Image::<T, CHANNELS>::new_arc(unsafe { write_buf_container.assume_init() }, width, height)
     }
 }
 
-impl<T> GenericImage<T, 1> {
+impl<T> Image<T, 1> {
     pub const fn buffer(&self) -> &[T] {
         let len = self.0.width.get() as usize * self.0.height.get() as usize;
         unsafe { std::slice::from_raw_parts(self.0.ptrs[0], len) }
     }
 }
 
-impl<const CHANNELS: usize, T: Copy> GenericImage<[T; CHANNELS], 1> {
+impl<const CHANNELS: usize, T: Copy> Image<[T; CHANNELS], 1> {
     pub fn flat_buffer(&self) -> &[T] {
         // SAFETY: [u8; 3] has the same layout as 3 consecutive u8 values
         unsafe {
@@ -224,7 +226,7 @@ impl<const CHANNELS: usize, T: Copy> GenericImage<[T; CHANNELS], 1> {
         }
     }
 
-    pub fn from_planar_image(i: &GenericImage<T, CHANNELS>) -> Self {
+    pub fn from_planar_image(i: &Image<T, CHANNELS>) -> Self {
         let (width, height) = i.dimensions();
         Self::from_planar(i.buffers(), width, height)
     }
@@ -252,21 +254,20 @@ impl<const CHANNELS: usize, T: Copy> GenericImage<[T; CHANNELS], 1> {
         }
         let data = unsafe { data.assume_init() };
 
-        GenericImage::<[T; CHANNELS], 1>::new_arc(data, width, height)
+        Image::<[T; CHANNELS], 1>::new_arc(data, width, height)
     }
 }
 
 #[repr(C)]
 pub struct ImageVtable<T: 'static, const CHANNELS: usize> {
-    pub clone:
-        unsafe extern "C" fn(&UnsafeGenericImage<T, CHANNELS>) -> UnsafeGenericImage<T, CHANNELS>,
-    pub make_mut: unsafe extern "C" fn(&mut UnsafeGenericImage<T, CHANNELS>),
-    pub drop: unsafe extern "C" fn(&mut UnsafeGenericImage<T, CHANNELS>),
+    pub clone: unsafe extern "C" fn(&UnsafeImage<T, CHANNELS>) -> UnsafeImage<T, CHANNELS>,
+    pub make_mut: unsafe extern "C" fn(&mut UnsafeImage<T, CHANNELS>),
+    pub drop: unsafe extern "C" fn(&mut UnsafeImage<T, CHANNELS>),
 }
 
-impl<TP: std::any::Any, const CHANNELS: usize> Debug for GenericImage<TP, CHANNELS> {
+impl<TP: std::any::Any, const CHANNELS: usize> Debug for Image<TP, CHANNELS> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GenericImage")
+        f.debug_struct("Image")
             .field("width", &self.0.width)
             .field("height", &self.0.height)
             .field("channels", &CHANNELS)
@@ -275,10 +276,10 @@ impl<TP: std::any::Any, const CHANNELS: usize> Debug for GenericImage<TP, CHANNE
     }
 }
 
-unsafe impl<TP: Send, const T: usize> Send for GenericImage<TP, T> {}
-unsafe impl<TP: Sync, const T: usize> Sync for GenericImage<TP, T> {}
+unsafe impl<TP: Send, const T: usize> Send for Image<TP, T> {}
+unsafe impl<TP: Sync, const T: usize> Sync for Image<TP, T> {}
 
-impl<'a, T> From<&'a GenericImage<T, 1>> for (&'a [T], NonZeroU32, NonZeroU32) {
+impl<'a, T> From<&'a Image<T, 1>> for (&'a [T], NonZeroU32, NonZeroU32) {
     fn from(that: &'a LumaImage<T>) -> Self {
         let (width, height) = that.dimensions();
         let buf = that.buffer();
@@ -287,7 +288,7 @@ impl<'a, T> From<&'a GenericImage<T, 1>> for (&'a [T], NonZeroU32, NonZeroU32) {
 }
 
 #[repr(C)]
-pub struct UnsafeGenericImage<T: 'static, const CHANNELS: usize> {
+pub struct UnsafeImage<T: 'static, const CHANNELS: usize> {
     pub ptrs: [*const T; CHANNELS],
     pub width: NonZeroU32,
     pub height: NonZeroU32,
@@ -295,7 +296,7 @@ pub struct UnsafeGenericImage<T: 'static, const CHANNELS: usize> {
     // Has to be cleaned up by clear proc too
     pub data: usize,
 }
-impl<const CHANNELS: usize, T: 'static> UnsafeGenericImage<T, CHANNELS> {
+impl<const CHANNELS: usize, T: 'static> UnsafeImage<T, CHANNELS> {
     /// Don't use this method unless you need a custom image.
     ///
     /// Use/provide methods like new_vec() and new_arc() for safe construction
@@ -311,7 +312,7 @@ impl<const CHANNELS: usize, T: 'static> UnsafeGenericImage<T, CHANNELS> {
     ) -> Self {
         assert!(matches!(CHANNELS, 1 | 3 | 4));
 
-        UnsafeGenericImage {
+        UnsafeImage {
             ptrs,
             width,
             height,
@@ -321,7 +322,7 @@ impl<const CHANNELS: usize, T: 'static> UnsafeGenericImage<T, CHANNELS> {
     }
 }
 
-impl<T, const CHANNELS: usize> Drop for UnsafeGenericImage<T, CHANNELS> {
+impl<T, const CHANNELS: usize> Drop for UnsafeImage<T, CHANNELS> {
     fn drop(&mut self) {
         if self.ptrs[0] as usize != 0 {
             unsafe { (self.vtable.drop)(self) };
@@ -354,7 +355,7 @@ mod tests {
 
         // Miri seems to generate clear_vec::<const u8> for each call
         // It works on native x86. Because it's only an optimization, this is good enough
-        // VTable is not possible, as GenericImage is ABI-Stable and multiple dylibs use their own allocator for Vecs
+        // VTable is not possible, as Image is ABI-Stable and multiple dylibs use their own allocator for Vecs
         if !cfg!(miri) {
             assert_eq!(
                 to_vec[..].as_ptr(),
@@ -429,7 +430,7 @@ mod tests {
     #[test]
     fn miri_test_shared_arc_u16_luma() {
         let arc: Arc<[u16]> = vec![1].into();
-        test_entire_vtable(GenericImage::<u16, 1>::new_arc(
+        test_entire_vtable(Image::<u16, 1>::new_arc(
             arc,
             NonZeroU32::MIN,
             NonZeroU32::MIN,
@@ -437,7 +438,7 @@ mod tests {
     }
     #[test]
     fn miri_test_exclusive_arc_u16_luma() {
-        test_entire_vtable(GenericImage::<u16, 1>::new_arc(
+        test_entire_vtable(Image::<u16, 1>::new_arc(
             vec![1].into(),
             NonZeroU32::MIN,
             NonZeroU32::MIN,
@@ -445,7 +446,7 @@ mod tests {
     }
     #[test]
     fn miri_test_vec_u16_luma() {
-        test_entire_vtable(GenericImage::<u16, 1>::new_vec(
+        test_entire_vtable(Image::<u16, 1>::new_vec(
             vec![1],
             NonZeroU32::MIN,
             NonZeroU32::MIN,
@@ -453,7 +454,7 @@ mod tests {
     }
 
     fn test_entire_vtable<T: 'static + Default + Eq + Debug, const SIZE: usize>(
-        mut image: GenericImage<T, SIZE>,
+        mut image: Image<T, SIZE>,
     ) {
         for channel in image.make_mut() {
             channel[0] = T::default();

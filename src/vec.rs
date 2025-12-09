@@ -1,8 +1,8 @@
 use std::num::NonZeroU32;
 
-use crate::{Factory, ImageVtable, UnsafeGenericImage};
+use crate::{Factory, ImageVtable, UnsafeImage};
 
-impl<const CHANNELS: usize, T: 'static> UnsafeGenericImage<T, CHANNELS> {
+impl<const CHANNELS: usize, T: 'static> UnsafeImage<T, CHANNELS> {
     pub fn new_vec(input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: Clone,
@@ -28,7 +28,7 @@ struct VecFactory;
 impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for VecFactory {
     const VTABLE: &'static ImageVtable<T, CHANNELS> = {
         unsafe extern "C" fn make_mut<T: Clone, const CHANNELS: usize>(
-            _image: &mut UnsafeGenericImage<T, CHANNELS>,
+            _image: &mut UnsafeImage<T, CHANNELS>,
         ) {
             // Do nothing, as ptrs are exclusive if i have &mut ImutableVtable
         }
@@ -41,7 +41,7 @@ impl<T: 'static + Clone, const CHANNELS: usize> Factory<T, CHANNELS> for VecFact
 }
 
 pub(crate) extern "C" fn clear_vec<T, const CHANNELS: usize>(
-    image: &mut UnsafeGenericImage<T, CHANNELS>,
+    image: &mut UnsafeImage<T, CHANNELS>,
 ) {
     unsafe {
         Vec::from_raw_parts(

@@ -1,12 +1,12 @@
 use std::num::{NonZeroU8, NonZeroUsize};
 
-use crate::GenericImage;
+use crate::Image;
 
 /// Dynamic version of image buffers.
-/// GenericImage<[u8; PIXEL_DIMENSIONS], BUFFER_DIMENSIONS>
+/// Image<[u8; PIXEL_DIMENSIONS], BUFFER_DIMENSIONS>
 ///
-/// The public interface is designed, so it can be extended to support images, which cannot be represented with GenericImage (e.g. 1 Channel U8 and the other f32) in the future
-/// It currently only allows casting back to GenericImage to access the data
+/// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel U8 and the other f32) in the future
+/// It currently only allows casting back to Image to access the data
 pub struct DynamicImage {
     data: Box<dyn std::any::Any>,
     layout: ImageLayout<NonZeroUsize>,
@@ -30,8 +30,8 @@ pub enum DynamicPixelKind {
     F32,
 }
 
-impl<const CHANNELS: usize> From<GenericImage<u8, CHANNELS>> for DynamicImage {
-    fn from(value: GenericImage<u8, CHANNELS>) -> Self {
+impl<const CHANNELS: usize> From<Image<u8, CHANNELS>> for DynamicImage {
+    fn from(value: Image<u8, CHANNELS>) -> Self {
         DynamicImage {
             data: Box::new(value) as _,
             layout: ImageLayout {
@@ -53,9 +53,9 @@ pub struct IncompatibleImageError {
 }
 
 impl<T: PixelType, const CHANNELS: usize, const PIXEL_CHANNELS: usize>
-    From<GenericImage<[T; PIXEL_CHANNELS], CHANNELS>> for DynamicImage
+    From<Image<[T; PIXEL_CHANNELS], CHANNELS>> for DynamicImage
 {
-    fn from(value: GenericImage<[T; PIXEL_CHANNELS], CHANNELS>) -> Self {
+    fn from(value: Image<[T; PIXEL_CHANNELS], CHANNELS>) -> Self {
         let _non_zero = const { CHANNELS.checked_sub(1).unwrap() };
         let _non_one = const { CHANNELS.checked_sub(1).unwrap() };
 
@@ -109,7 +109,7 @@ impl<T: PixelTypePrimitive> PixelType for [T; 4] {
     const KIND: DynamicPixelKind = T::KIND;
 }
 
-impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for GenericImage<T, CHANNELS> {
+impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
     type Error = IncompatibleImageError;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
@@ -172,8 +172,7 @@ mod tests {
 
     #[test]
     fn create_from_luma_rgb8_planar() {
-        let luma =
-            GenericImage::<u8, 3>::new_vec(vec![1u8, 2, 3], NonZeroU32::MIN, NonZeroU32::MIN);
+        let luma = Image::<u8, 3>::new_vec(vec![1u8, 2, 3], NonZeroU32::MIN, NonZeroU32::MIN);
         let dynamic = DynamicImage::from(luma);
         assert_eq!(3, dynamic.buffer_dimensions().get());
         assert_eq!(
@@ -182,7 +181,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             dynamic.pixel_kinds().collect::<Vec<_>>()
         );
-        let luma_back: GenericImage<u8, 3> = dynamic.try_into().unwrap();
+        let luma_back: Image<u8, 3> = dynamic.try_into().unwrap();
         assert_eq!(luma_back.into_vec(), vec![1u8, 2, 3]);
     }
 }
