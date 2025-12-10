@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    num::{NonZeroU8, NonZeroUsize},
+    num::{NonZeroU8, NonZeroU32, NonZeroUsize},
 };
 
 use crate::Image;
@@ -8,11 +8,16 @@ use crate::Image;
 /// Trait that extends `Any` with a method to clone the boxed value.
 trait CloneableDebugAny: std::any::Any + Debug + Send + Sync {
     fn boxed_clone(&self) -> Box<dyn CloneableDebugAny>;
+    fn dimensions(&self) -> (NonZeroU32, NonZeroU32);
 }
 
-impl<T: Clone + 'static + Debug + Send + Sync> CloneableDebugAny for T {
+impl<T: Clone + Send + Sync, const CHANNELS: usize> CloneableDebugAny for Image<T, CHANNELS> {
     fn boxed_clone(&self) -> Box<dyn CloneableDebugAny> {
         Box::new(self.clone())
+    }
+
+    fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
+        self.dimensions()
     }
 }
 
@@ -54,8 +59,8 @@ pub enum DynamicPixelKind {
     F32,
 }
 
-impl<TPixel: PixelTypePrimitive + Send + Sync, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
-    for DynamicImage
+impl<TPixel: PixelTypePrimitive + Send + Sync + Clone, const CHANNELS: usize>
+    From<Image<TPixel, CHANNELS>> for DynamicImage
 {
     fn from(value: Image<TPixel, CHANNELS>) -> Self {
         DynamicImage {
@@ -78,7 +83,7 @@ pub struct IncompatibleImageError {
     expected: ImageLayout<usize>,
 }
 
-impl<T: PixelType + Send + Sync, const CHANNELS: usize, const PIXEL_CHANNELS: usize>
+impl<T: PixelType + Send + Sync + Clone, const CHANNELS: usize, const PIXEL_CHANNELS: usize>
     From<Image<[T; PIXEL_CHANNELS], CHANNELS>> for DynamicImage
 {
     fn from(value: Image<[T; PIXEL_CHANNELS], CHANNELS>) -> Self {
