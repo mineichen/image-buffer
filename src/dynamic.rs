@@ -2,14 +2,34 @@ use std::num::{NonZeroU8, NonZeroUsize};
 
 use crate::Image;
 
+/// Trait that extends `Any` with a method to clone the boxed value.
+trait CloneableAny: std::any::Any {
+    fn boxed_clone(&self) -> Box<dyn CloneableAny>;
+}
+
+impl<T: Clone + 'static> CloneableAny for T {
+    fn boxed_clone(&self) -> Box<dyn CloneableAny> {
+        Box::new(self.clone())
+    }
+}
+
 /// Dynamic version of image buffers.
 /// Image<[u8; PIXEL_DIMENSIONS], BUFFER_DIMENSIONS>
 ///
 /// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel U8 and the other f32) in the future
 /// It currently only allows casting back to Image to access the data
 pub struct DynamicImage {
-    data: Box<dyn std::any::Any>,
+    data: Box<dyn CloneableAny>,
     layout: ImageLayout<NonZeroUsize>,
+}
+
+impl Clone for DynamicImage {
+    fn clone(&self) -> Self {
+        DynamicImage {
+            data: self.data.boxed_clone(),
+            layout: self.layout,
+        }
+    }
 }
 
 impl DynamicImage {
@@ -115,7 +135,7 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHA
     type Error = IncompatibleImageError;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
-        if let Ok(x) = value.data.downcast::<Self>() {
+        if let Ok(x) = (value.data as Box<dyn std::any::Any>).downcast::<Self>() {
             Ok(*x)
         } else {
             Err(IncompatibleImageError {
@@ -185,5 +205,22 @@ mod tests {
         );
         let luma_back: Image<u8, 3> = dynamic.try_into().unwrap();
         assert_eq!(luma_back.into_vec(), vec![1u8, 2, 3]);
+    }
+
+    #[test]
+    fn clone_dynamic_image() {
+        let width = NonZeroU32::new(2).unwrap();
+        let height = NonZeroU32::new(2).unwrap();
+        let luma = LumaImage::<u8>::new_vec(vec![1, 2, 3, 4], width, height);
+        let dynamic = DynamicImage::from(luma);
+        let cloned = dynamic.clone();
+
+        // Verify both can be converted back to the same image
+        let luma_back: LumaImage<u8> = dynamic.try_into().unwrap();
+        let luma_cloned: LumaImage<u8> = cloned.try_into().unwrap();
+        let vec_back = luma_back.into_vec();
+        let vec_cloned = luma_cloned.into_vec();
+        assert_eq!(vec_back, vec_cloned);
+        assert_eq!(vec_cloned, vec![1, 2, 3, 4]);
     }
 }
