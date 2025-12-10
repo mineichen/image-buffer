@@ -79,7 +79,7 @@ impl<TPixel: PixelTypePrimitive + Send + Sync + Clone, const CHANNELS: usize>
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct IncompatibleImageError {
-    actual: ImageLayout<NonZeroUsize>,
+    image: DynamicImage,
     expected: ImageLayout<usize>,
 }
 
@@ -144,17 +144,18 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHA
     type Error = IncompatibleImageError;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
-        if let Ok(x) = (value.data as Box<dyn std::any::Any>).downcast::<Self>() {
-            Ok(*x)
-        } else {
-            Err(IncompatibleImageError {
-                actual: value.layout,
+        match (value.data.as_ref() as &dyn std::any::Any).downcast_ref::<Self>() {
+            Some(_) => Ok(*(value.data as Box<dyn std::any::Any>)
+                .downcast::<Self>()
+                .expect("Checked during construction")),
+            None => Err(IncompatibleImageError {
+                image: value,
                 expected: ImageLayout {
                     pixel_dimensions: T::PIXEL_CHANNELS,
                     pixel_kind: T::KIND,
                     buffer_dimensions: CHANNELS,
                 },
-            })
+            }),
         }
     }
 }
