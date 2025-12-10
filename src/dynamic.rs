@@ -6,11 +6,11 @@ use std::{
 use crate::Image;
 
 /// Trait that extends `Any` with a method to clone the boxed value.
-trait CloneableDebugAny: std::any::Any + Debug {
+trait CloneableDebugAny: std::any::Any + Debug + Send + Sync {
     fn boxed_clone(&self) -> Box<dyn CloneableDebugAny>;
 }
 
-impl<T: Clone + 'static + Debug> CloneableDebugAny for T {
+impl<T: Clone + 'static + Debug + Send + Sync> CloneableDebugAny for T {
     fn boxed_clone(&self) -> Box<dyn CloneableDebugAny> {
         Box::new(self.clone())
     }
@@ -54,7 +54,7 @@ pub enum DynamicPixelKind {
     F32,
 }
 
-impl<TPixel: PixelTypePrimitive, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
+impl<TPixel: PixelTypePrimitive + Send + Sync, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
     for DynamicImage
 {
     fn from(value: Image<TPixel, CHANNELS>) -> Self {
@@ -78,7 +78,7 @@ pub struct IncompatibleImageError {
     expected: ImageLayout<usize>,
 }
 
-impl<T: PixelType, const CHANNELS: usize, const PIXEL_CHANNELS: usize>
+impl<T: PixelType + Send + Sync, const CHANNELS: usize, const PIXEL_CHANNELS: usize>
     From<Image<[T; PIXEL_CHANNELS], CHANNELS>> for DynamicImage
 {
     fn from(value: Image<[T; PIXEL_CHANNELS], CHANNELS>) -> Self {
