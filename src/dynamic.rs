@@ -30,13 +30,15 @@ pub enum DynamicPixelKind {
     F32,
 }
 
-impl<const CHANNELS: usize> From<Image<u8, CHANNELS>> for DynamicImage {
-    fn from(value: Image<u8, CHANNELS>) -> Self {
+impl<TPixel: PixelTypePrimitive, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
+    for DynamicImage
+{
+    fn from(value: Image<TPixel, CHANNELS>) -> Self {
         DynamicImage {
             data: Box::new(value) as _,
             layout: ImageLayout {
                 pixel_dimensions: NonZeroU8::MIN,
-                pixel_kind: DynamicPixelKind::U8,
+                pixel_kind: TPixel::KIND,
                 buffer_dimensions: NonZeroUsize::try_from(CHANNELS)
                     .expect("Checked during construction"),
             },
@@ -62,7 +64,7 @@ impl<T: PixelType, const CHANNELS: usize, const PIXEL_CHANNELS: usize>
         DynamicImage {
             data: Box::new(value) as _,
             layout: ImageLayout {
-                pixel_kind: DynamicPixelKind::U8,
+                pixel_kind: T::KIND,
                 pixel_dimensions: NonZeroU8::MIN,
                 buffer_dimensions: NonZeroUsize::try_from(CHANNELS)
                     .expect("Checked during construction"),
@@ -80,11 +82,11 @@ impl PixelTypePrimitive for u8 {
 }
 
 impl PixelTypePrimitive for u16 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::U8;
+    const KIND: DynamicPixelKind = DynamicPixelKind::U16;
 }
 
 impl PixelTypePrimitive for f32 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::U8;
+    const KIND: DynamicPixelKind = DynamicPixelKind::F32;
 }
 
 pub trait PixelType {
