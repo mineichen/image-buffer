@@ -1,14 +1,17 @@
-use std::num::{NonZeroU8, NonZeroUsize};
+use std::{
+    fmt::Debug,
+    num::{NonZeroU8, NonZeroUsize},
+};
 
 use crate::Image;
 
 /// Trait that extends `Any` with a method to clone the boxed value.
-trait CloneableAny: std::any::Any {
-    fn boxed_clone(&self) -> Box<dyn CloneableAny>;
+trait CloneableDebugAny: std::any::Any + Debug {
+    fn boxed_clone(&self) -> Box<dyn CloneableDebugAny>;
 }
 
-impl<T: Clone + 'static> CloneableAny for T {
-    fn boxed_clone(&self) -> Box<dyn CloneableAny> {
+impl<T: Clone + 'static + Debug> CloneableDebugAny for T {
+    fn boxed_clone(&self) -> Box<dyn CloneableDebugAny> {
         Box::new(self.clone())
     }
 }
@@ -18,8 +21,9 @@ impl<T: Clone + 'static> CloneableAny for T {
 ///
 /// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel U8 and the other f32) in the future
 /// It currently only allows casting back to Image to access the data
+#[derive(Debug)]
 pub struct DynamicImage {
-    data: Box<dyn CloneableAny>,
+    data: Box<dyn CloneableDebugAny>,
     layout: ImageLayout<NonZeroUsize>,
 }
 
