@@ -43,7 +43,7 @@ impl Clone for DynamicImage {
 }
 
 impl DynamicImage {
-    pub fn pixel_kinds(&self) -> impl Iterator<Item = (NonZeroU8, DynamicPixelKind)> {
+    pub fn channel_infos(&self) -> impl Iterator<Item = (NonZeroU8, DynamicPixelKind)> {
         (0..self.layout.buffer_dimensions.get())
             .map(|_| (self.layout.pixel_dimensions, self.layout.pixel_kind))
     }
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(1, dynamic.buffer_dimensions().get());
         assert_eq!(
             vec![(NonZeroU8::MIN, DynamicPixelKind::U8)],
-            dynamic.pixel_kinds().collect::<Vec<_>>()
+            dynamic.channel_infos().collect::<Vec<_>>()
         );
         let luma_back: LumaImage<u8> = dynamic.try_into().unwrap();
         assert_eq!(luma_back.into_vec(), vec![1]);
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(1, dynamic.buffer_dimensions().get());
         assert_eq!(
             vec![(NonZeroU8::new(3).unwrap(), DynamicPixelKind::U8)],
-            dynamic.pixel_kinds().collect::<Vec<_>>()
+            dynamic.channel_infos().collect::<Vec<_>>()
         );
         let luma_back: LumaImage<[u8; 3]> = dynamic.try_into().unwrap();
         assert_eq!(luma_back.into_vec(), vec![[1u8, 2, 3]]);
@@ -236,7 +236,7 @@ mod tests {
             std::iter::repeat((NonZeroU8::MIN, DynamicPixelKind::U8))
                 .take(3)
                 .collect::<Vec<_>>(),
-            dynamic.pixel_kinds().collect::<Vec<_>>()
+            dynamic.channel_infos().collect::<Vec<_>>()
         );
         let luma_back: Image<u8, 3> = dynamic.try_into().unwrap();
         assert_eq!(luma_back.into_vec(), vec![1u8, 2, 3]);
@@ -270,7 +270,7 @@ mod tests {
         assert_eq!(1, dynamic.buffer_dimensions().get());
         assert_eq!(
             vec![(const { NonZeroU8::new(3).unwrap() }, DynamicPixelKind::U8)],
-            dynamic.pixel_kinds().collect::<Vec<_>>()
+            dynamic.channel_infos().collect::<Vec<_>>()
         );
     }
 }
