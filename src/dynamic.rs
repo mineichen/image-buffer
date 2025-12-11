@@ -1,9 +1,10 @@
 use std::{
     fmt::Debug,
+    marker::PhantomData,
     num::{NonZeroU8, NonZeroU32, NonZeroUsize},
 };
 
-use crate::Image;
+use crate::{Image, UnsafeImage};
 
 /// Trait that extends `Any` with a method to clone the boxed value.
 trait CloneableDebugAny: std::any::Any + Debug + Send + Sync {
@@ -78,8 +79,8 @@ impl<TPixel: PixelTypePrimitive + Send + Sync + Clone, const CHANNELS: usize>
 #[non_exhaustive]
 #[derive(Debug)]
 #[allow(dead_code)]
-pub struct IncompatibleImageError {
-    image: DynamicImage,
+pub struct IncompatibleImageError<TInput> {
+    pub image: TInput,
     expected: ImageLayout<usize>,
 }
 
@@ -94,7 +95,10 @@ impl<T: PixelType + Send + Sync + Clone, const CHANNELS: usize, const PIXEL_CHAN
             data: Box::new(value) as _,
             layout: ImageLayout {
                 pixel_kind: T::KIND,
-                pixel_dimensions: NonZeroU8::MIN,
+                pixel_dimensions: NonZeroU8::try_from(
+                    u8::try_from(PIXEL_CHANNELS).expect("PIXEL_CHANNELS must be less than 256"),
+                )
+                .unwrap(),
                 buffer_dimensions: NonZeroUsize::try_from(CHANNELS)
                     .expect("Checked during construction"),
             },
@@ -141,7 +145,7 @@ impl<T: PixelTypePrimitive> PixelType for [T; 4] {
 }
 
 impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
-    type Error = IncompatibleImageError;
+    type Error = IncompatibleImageError<DynamicImage>;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
         match (value.data.as_ref() as &dyn std::any::Any).downcast_ref::<Self>() {
@@ -157,6 +161,27 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHA
                 },
             }),
         }
+    }
+}
+
+/// This is a temporary workaround until VTables are per layer instead of per image
+impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a DynamicImage>
+    for &'a Image<T, CHANNELS>
+{
+    type Error = IncompatibleImageError<&'a DynamicImage>;
+
+    fn try_from(value: &'a DynamicImage) -> Result<Self, Self::Error> {
+        (value.data.as_ref() as &dyn std::any::Any)
+            .downcast_ref::<Image<T, CHANNELS>>()
+            .map(|x| x)
+            .ok_or(IncompatibleImageError {
+                image: value,
+                expected: ImageLayout {
+                    pixel_dimensions: T::PIXEL_CHANNELS,
+                    pixel_kind: T::KIND,
+                    buffer_dimensions: CHANNELS,
+                },
+            })
     }
 }
 
@@ -195,7 +220,7 @@ mod tests {
         let dynamic = DynamicImage::from(luma);
         assert_eq!(1, dynamic.buffer_dimensions().get());
         assert_eq!(
-            vec![(NonZeroU8::MIN, DynamicPixelKind::U8)],
+            vec![(NonZeroU8::new(3).unwrap(), DynamicPixelKind::U8)],
             dynamic.pixel_kinds().collect::<Vec<_>>()
         );
         let luma_back: LumaImage<[u8; 3]> = dynamic.try_into().unwrap();
@@ -227,10 +252,25 @@ mod tests {
 
         // Verify both can be converted back to the same image
         let luma_back: LumaImage<u8> = dynamic.try_into().unwrap();
+        {
+            let ref_luma: &Image<u8, 1> = (&cloned).try_into().unwrap();
+            assert_eq!(ref_luma.dimensions(), (width, height));
+        }
         let luma_cloned: LumaImage<u8> = cloned.try_into().unwrap();
         let vec_back = luma_back.into_vec();
         let vec_cloned = luma_cloned.into_vec();
         assert_eq!(vec_back, vec_cloned);
         assert_eq!(vec_cloned, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn create_from_rgb8_interleaved() {
+        let rgb = Image::<[u8; 3], 1>::new_vec(vec![[1u8, 2, 3]], NonZeroU32::MIN, NonZeroU32::MIN);
+        let dynamic = DynamicImage::from(rgb);
+        assert_eq!(1, dynamic.buffer_dimensions().get());
+        assert_eq!(
+            vec![(const { NonZeroU8::new(3).unwrap() }, DynamicPixelKind::U8)],
+            dynamic.pixel_kinds().collect::<Vec<_>>()
+        );
     }
 }

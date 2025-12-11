@@ -34,7 +34,7 @@ pub type RgbaImageInterleaved<T> = Image<[T; 4], 1>;
 pub type RgbImagePlanar<T> = Image<T, 3>;
 pub type RgbaImagePlanar<T> = Image<T, 4>;
 
-pub use dynamic::{DynamicImage, DynamicPixelKind};
+pub use dynamic::{DynamicImage, IncompatibleImageError, DynamicPixelKind};
 
 #[deprecated = "Use Image instead"]
 pub type GenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
