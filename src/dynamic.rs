@@ -166,7 +166,6 @@ impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a 
     fn try_from(value: &'a DynamicImage) -> Result<Self, Self::Error> {
         (value.data.as_ref() as &dyn std::any::Any)
             .downcast_ref::<Image<T, CHANNELS>>()
-            .map(|x| x)
             .ok_or(IncompatibleImageError {
                 image: value,
                 expected: ImageLayout {

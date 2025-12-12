@@ -38,8 +38,6 @@ impl<T: std::cmp::PartialEq, const CHANNELS: usize> PartialEq for Image<T, CHANN
 
 #[allow(clippy::len_without_is_empty)]
 impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
-    /// Validates that all channels have the same width and height
-
     #[deprecated = "Use eigher new_vec or new_arc"]
     pub fn new(input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
@@ -60,7 +58,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
             "Incompatible Buffer-Size"
         );
 
-        let channels = if CHANNELS == 1 {
+        if CHANNELS == 1 {
             // For single channel, use Vec directly to preserve pointer reuse
             let channel = ImageChannel::new_vec(input, width, height);
             unsafe {
@@ -70,8 +68,12 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
             }
         } else {
             // Use SharedVec to share the Vec across channels
-            let unsafe_channels =
-                shared_vec::create_shared_channels::<T, CHANNELS>(input, width, height);
+            let unsafe_channels = shared_vec::create_shared_channels::<T, CHANNELS>(
+                input,
+                width,
+                height,
+                std::array::from_fn(|i| i * (width.get() * height.get()) as usize),
+            );
 
             // Convert UnsafeImageChannels to ImageChannels using vtable clone
             let channels = std::array::from_fn(|i| {
@@ -80,9 +82,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
                 })
             });
             Self(channels)
-        };
-
-        channels
+        }
     }
 
     pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
@@ -98,7 +98,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         );
 
         // Create CHANNELS ImageChannels, each pointing to a different slice of the same Arc
-        let channels = if CHANNELS == 1 {
+        if CHANNELS == 1 {
             // For single channel, use the Arc directly to preserve pointer
             let channel = ImageChannel::new_arc(input, width, height);
             // SAFETY: When CHANNELS == 1, we know the array has exactly one element
@@ -118,9 +118,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
                 ImageChannel::new_arc(channel_slice, width, height)
             });
             Self(channels)
-        };
-
-        channels
+        }
     }
 
     pub const fn len(&self) -> usize {
