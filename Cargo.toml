@@ -1,13 +1,13 @@
 [package]
-name = "image-buffer"
+name = "imbuf"
 version = "0.1.0"
 edition = "2024"
 authors = ["mineichen"]
-description = "FFI-compatible image buffers with copy-on-write support and type erasure capabilities"
+description = "Image buffers that abstract over underlying storage (Vec, Arc, or custom backends). Features copy-on-write semantics for efficient memory usage."
 license = "MPL-2.0"
 repository = "https://github.com/mineichen/image-buffer"
 readme = "README.md"
-keywords = ["image", "buffer", "ffi", "opencv", "copy-on-write"]
+keywords = ["image", "buffer", "ffi", "copy-on-write"]
 categories = ["multimedia::images", "external-ffi"]
 
 [dependencies]

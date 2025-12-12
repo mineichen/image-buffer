@@ -1,24 +1,18 @@
 use std::{
     fmt::Debug,
-    marker::PhantomData,
-    num::{NonZeroU8, NonZeroU32, NonZeroUsize},
+    num::{NonZeroU8, NonZeroUsize},
 };
 
-use crate::{Image, UnsafeImage};
+use crate::Image;
 
 /// Trait that extends `Any` with a method to clone the boxed value.
 trait CloneableDebugAny: std::any::Any + Debug + Send + Sync {
     fn boxed_clone(&self) -> Box<dyn CloneableDebugAny>;
-    fn dimensions(&self) -> (NonZeroU32, NonZeroU32);
 }
 
 impl<T: Clone + Send + Sync, const CHANNELS: usize> CloneableDebugAny for Image<T, CHANNELS> {
     fn boxed_clone(&self) -> Box<dyn CloneableDebugAny> {
         Box::new(self.clone())
-    }
-
-    fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
-        self.dimensions()
     }
 }
 
