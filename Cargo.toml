@@ -8,6 +8,6 @@ license = "MPL-2.0"
 repository = "https://github.com/mineichen/image-buffer"
 readme = "README.md"
 keywords = ["image", "buffer", "ffi", "copy-on-write"]
-categories = ["multimedia::images", "ffi"]
+categories = ["multimedia::images", "graphics", "computer-vision", "data-structures"]
 
 [dependencies]
