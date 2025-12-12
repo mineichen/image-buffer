@@ -1,3 +1,5 @@
+[![CI](https://github.com/mineichen/image-buffer/actions/workflows/test.yml/badge.svg)](https://github.com/mineichen/image-buffer/actions/workflows/test.yml)
+
 This crate provides image buffers, which can be used to hide the underlying storage.
 
 - FFI compatible
