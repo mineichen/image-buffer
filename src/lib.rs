@@ -21,12 +21,6 @@ pub type RgbaImageInterleaved<T> = Image<[T; 4], 1>;
 pub type RgbImagePlanar<T> = Image<T, 3>;
 pub type RgbaImagePlanar<T> = Image<T, 4>;
 
-#[deprecated = "Use Image instead"]
-pub type GenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
-
-#[deprecated = "Use UnsafeImage instead"]
-pub type UnsafeGenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
-
 #[derive(Clone)]
 pub struct Image<T: 'static, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
 
@@ -43,7 +37,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
     where
         T: Clone,
     {
-        let _ = const { CHANNELS.checked_sub(1).unwrap() };
+        let _assert_not_zero = const { CHANNELS.checked_sub(1).unwrap() };
         Self::new_vec(input, width, height)
     }
 
@@ -51,7 +45,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
     where
         T: Clone,
     {
-        let _ = const { CHANNELS.checked_sub(1).unwrap() };
+        let _assert_not_zero = const { CHANNELS.checked_sub(1).unwrap() };
         assert_eq!(
             input.len(),
             width.get() as usize * height.get() as usize * CHANNELS,
@@ -67,21 +61,10 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
                 Self(arr.assume_init())
             }
         } else {
-            // Use SharedVec to share the Vec across channels
-            let unsafe_channels = shared_vec::create_shared_channels::<T, CHANNELS>(
+            Self(shared_vec::create_shared_channels(
                 input,
-                width,
-                height,
-                std::array::from_fn(|i| i * (width.get() * height.get()) as usize),
-            );
-
-            // Convert UnsafeImageChannels to ImageChannels using vtable clone
-            let channels = std::array::from_fn(|i| {
-                ImageChannel::from_unsafe_internal(unsafe {
-                    (unsafe_channels[i].vtable.clone)(&unsafe_channels[i])
-                })
-            });
-            Self(channels)
+                [(width, height); CHANNELS],
+            ))
         }
     }
 

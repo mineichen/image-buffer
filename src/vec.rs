@@ -93,11 +93,6 @@ impl<T: 'static + Clone> ChannelFactory<T> for VecFactory {
     };
 }
 
-// Helper to get Vec vtable (needed by shared_vec)
-pub(crate) fn get_vec_channel_vtable<T: 'static + Clone>() -> &'static ImageChannelVTable<T> {
-    <VecFactory as ChannelFactory<T>>::VTABLE
-}
-
 pub(crate) extern "C" fn clear_vec_channel<T>(image: &mut UnsafeImageChannel<T>) {
     unsafe {
         Vec::from_raw_parts(
