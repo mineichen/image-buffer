@@ -2,5 +2,12 @@
 name = "image-buffer"
 version = "0.1.0"
 edition = "2024"
+authors = ["mineichen"]
+description = "FFI-compatible image buffers with copy-on-write support and type erasure capabilities"
+license = "MPL-2.0"
+repository = "https://github.com/mineichen/image-buffer"
+readme = "README.md"
+keywords = ["image", "buffer", "ffi", "opencv", "copy-on-write"]
+categories = ["multimedia::images", "external-ffi"]
 
 [dependencies]

@@ -22,8 +22,7 @@ impl<T: Clone + Send + Sync, const CHANNELS: usize> CloneableDebugAny for Image<
     }
 }
 
-/// Dynamic version of image buffers.
-/// Image<[u8; PIXEL_DIMENSIONS], BUFFER_DIMENSIONS>
+/// Image with unknown number of channels and their types
 ///
 /// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel U8 and the other f32) in the future
 /// It currently only allows casting back to Image to access the data

@@ -1,22 +1,4 @@
-//! #Coordinate System
-//! There are different interpretations of x and y in imageprocessing. Most work with the top left corner as (0,0)
-//! - Web: x=col, y=row https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/translate
-//! - Halcon-Image: x=row + 0.5, y=col + 0.5
-//! - Matlab: x=col + 0.5, y=row + 0.5 https://ch.mathworks.com/help/images/image-coordinate-systems.html
-//!
-//! There are just a few exceptions starting in the lower left corner:
-//! - OpenGL: x=col, y=row
-//!
-//! Pilatus is choosing top left corner (0,0) with x=col, y=row semantics for the following reasons:
-//! - All processing-libraries use the top-left corner
-//! - Z Points away from the plane. Dept images would have negative pixelvalues otherwise.
-//! - Horizontal is commonly described by X and vertical by Y, which leads to less confusion
-//! - We need two different formats (web and halcon) anyway. Conversions cannot be avoided
-//! - x=row y=col is more widely used in the analyzed examples
-//!
-//! # Genericity
-//! Gray images can easily be shared as Arc<Image<1>>, as there is no confusion how the pixels are aligned
-//! Color images are shared via Arc<dyn RgbImage>,
+#![doc = include_str!("../README.md")]
 use std::{
     fmt::{self, Debug, Formatter},
     mem::MaybeUninit,
@@ -34,7 +16,7 @@ pub type RgbaImageInterleaved<T> = Image<[T; 4], 1>;
 pub type RgbImagePlanar<T> = Image<T, 3>;
 pub type RgbaImagePlanar<T> = Image<T, 4>;
 
-pub use dynamic::{DynamicImage, IncompatibleImageError, DynamicPixelKind};
+pub use dynamic::{DynamicImage, DynamicPixelKind, IncompatibleImageError};
 
 #[deprecated = "Use Image instead"]
 pub type GenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
