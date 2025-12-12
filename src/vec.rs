@@ -74,7 +74,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
                 width,
                 height,
                 vtable,
-                std::ptr::without_provenance(cap),
+                std::ptr::without_provenance_mut(cap),
             )
         }
     }

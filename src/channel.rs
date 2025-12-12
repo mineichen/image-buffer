@@ -49,7 +49,7 @@ impl<T: 'static> ImageChannel<T> {
         width: NonZeroU32,
         height: NonZeroU32,
         vtable: &'static ImageChannelVTable<T>,
-        generic_field: *const (),
+        generic_field: *mut (),
     ) -> Self
     where
         T: Send + Sync,
@@ -70,6 +70,7 @@ impl<T: 'static> ImageChannel<T> {
         Self(unsafe_channel)
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         assert!(self.0.width.get() <= usize::MAX as u32);
         assert!(self.0.height.get() <= usize::MAX as u32);
@@ -151,7 +152,7 @@ pub struct UnsafeImageChannel<T: 'static> {
     pub height: NonZeroU32,
     pub vtable: &'static ImageChannelVTable<T>,
     // Has to be cleaned up by clear proc too
-    pub data: *const (),
+    pub data: *mut (),
 }
 
 impl<T: 'static> UnsafeImageChannel<T> {
@@ -166,7 +167,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
         width: NonZeroU32,
         height: NonZeroU32,
         vtable: &'static ImageChannelVTable<T>,
-        generic_field: *const (),
+        generic_field: *mut (),
     ) -> Self {
         UnsafeImageChannel {
             ptr,
