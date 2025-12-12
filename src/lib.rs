@@ -7,8 +7,13 @@ use std::{
 };
 
 mod arc;
+mod channel;
 mod dynamic;
+mod shared_vec;
 mod vec;
+
+pub use channel::ImageChannel;
+pub use dynamic::{DynamicImage, DynamicPixelKind, IncompatibleImageError};
 
 pub type LumaImage<T> = Image<T, 1>;
 pub type RgbImageInterleaved<T> = Image<[T; 3], 1>;
@@ -16,34 +21,25 @@ pub type RgbaImageInterleaved<T> = Image<[T; 4], 1>;
 pub type RgbImagePlanar<T> = Image<T, 3>;
 pub type RgbaImagePlanar<T> = Image<T, 4>;
 
-pub use dynamic::{DynamicImage, DynamicPixelKind, IncompatibleImageError};
-
 #[deprecated = "Use Image instead"]
 pub type GenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
 
 #[deprecated = "Use UnsafeImage instead"]
 pub type UnsafeGenericImage<T, const CHANNELS: usize> = Image<T, CHANNELS>;
 
-#[repr(transparent)]
-pub struct Image<T: 'static, const CHANNELS: usize>(UnsafeImage<T, CHANNELS>);
+#[derive(Clone)]
+pub struct Image<T: 'static, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
 
-impl<T, const CHANNELS: usize> Clone for Image<T, CHANNELS> {
-    fn clone(&self) -> Self {
-        Self(unsafe { (self.0.vtable.clone)(&self.0) })
-    }
-}
-
-// Todo: Fixme, this is not correct
 impl<T: std::cmp::PartialEq, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.width == other.0.width
-            && self.0.height == other.0.height
-            && self.buffers() == other.buffers()
+        self.0.iter().zip(other.0.iter()).all(|(a, b)| a == b)
     }
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
+    /// Validates that all channels have the same width and height
+
     #[deprecated = "Use eigher new_vec or new_arc"]
     pub fn new(input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
@@ -58,7 +54,35 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         T: Clone,
     {
         let _ = const { CHANNELS.checked_sub(1).unwrap() };
-        Self(UnsafeImage::new_vec(input, width, height))
+        assert_eq!(
+            input.len(),
+            width.get() as usize * height.get() as usize * CHANNELS,
+            "Incompatible Buffer-Size"
+        );
+
+        let channels = if CHANNELS == 1 {
+            // For single channel, use Vec directly to preserve pointer reuse
+            let channel = ImageChannel::new_vec(input, width, height);
+            unsafe {
+                let mut arr = std::mem::MaybeUninit::<[ImageChannel<T>; CHANNELS]>::uninit();
+                std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
+                Self(arr.assume_init())
+            }
+        } else {
+            // Use SharedVec to share the Vec across channels
+            let unsafe_channels =
+                shared_vec::create_shared_channels::<T, CHANNELS>(input, width, height);
+
+            // Convert UnsafeImageChannels to ImageChannels using vtable clone
+            let channels = std::array::from_fn(|i| {
+                ImageChannel::from_unsafe_internal(unsafe {
+                    (unsafe_channels[i].vtable.clone)(&unsafe_channels[i])
+                })
+            });
+            Self(channels)
+        };
+
+        channels
     }
 
     pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
@@ -66,94 +90,99 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         T: Clone,
     {
         let _ = const { CHANNELS.checked_sub(1).unwrap() };
-        Self(UnsafeImage::new_arc(input, width, height))
-    }
+        let len_per_channel = (width.get() * height.get()) as usize;
+        assert_eq!(
+            input.len(),
+            len_per_channel * CHANNELS,
+            "Incompatible Buffer-Size"
+        );
 
-    /// Don't use this method unless you need a custom image.
-    ///
-    /// Use/provide methods like new_vec() and new_arc() for safe construction
-    ///
-    /// # Safety
-    /// The vtable must be able to cleanup the fields
-    pub unsafe fn new_with_vtable(
-        ptrs: [*const T; CHANNELS],
-        width: NonZeroU32,
-        height: NonZeroU32,
-        vtable: &'static ImageVtable<T, CHANNELS>,
-        generic_field: usize,
-    ) -> Self
-    where
-        T: Send + Sync,
-    {
-        let _ = const { CHANNELS.checked_sub(1).unwrap() };
-        unsafe {
-            Self(UnsafeImage::new_with_vtable(
-                ptrs,
-                width,
-                height,
-                vtable,
-                generic_field,
-            ))
-        }
+        // Create CHANNELS ImageChannels, each pointing to a different slice of the same Arc
+        let channels = if CHANNELS == 1 {
+            // For single channel, use the Arc directly to preserve pointer
+            let channel = ImageChannel::new_arc(input, width, height);
+            // SAFETY: When CHANNELS == 1, we know the array has exactly one element
+            unsafe {
+                let mut arr = std::mem::MaybeUninit::<[ImageChannel<T>; CHANNELS]>::uninit();
+                std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
+                Self(arr.assume_init())
+            }
+        } else {
+            // For multiple channels, create slices
+            let channels = std::array::from_fn(|i| {
+                let start = i * len_per_channel;
+                let end = start + len_per_channel;
+                let slice = Arc::clone(&input);
+                // Create a new Arc pointing to the slice
+                let channel_slice: Arc<[T]> = Arc::from(&slice[start..end]);
+                ImageChannel::new_arc(channel_slice, width, height)
+            });
+            Self(channels)
+        };
+
+        channels
     }
 
     pub const fn len(&self) -> usize {
-        assert!(self.0.width.get() <= usize::MAX as u32);
-        assert!(self.0.height.get() <= usize::MAX as u32);
-        self.0.width.get() as usize * self.0.height.get() as usize
+        if CHANNELS > 0 { self.0[0].len() } else { 0 }
     }
 
-    pub const fn buffers(&self) -> [&[T]; CHANNELS] {
-        let len_per_channel = self.0.width.get() as usize * self.0.height.get() as usize;
-        let mut result = [[].as_slice(); CHANNELS];
-        let mut i = 0;
-        while i < CHANNELS {
-            result[i] = unsafe { std::slice::from_raw_parts(self.0.ptrs[i], len_per_channel) };
-            i += 1;
-        }
-        result
+    pub fn buffers(&self) -> [&[T]; CHANNELS] {
+        std::array::from_fn(|i| self.0[i].buffer())
     }
 
     pub fn make_mut(&mut self) -> [&mut [T]; CHANNELS] {
-        unsafe {
-            (self.0.vtable.make_mut)(&mut self.0);
-            let len = self.len();
-            self.0
-                .ptrs
-                .map(|ptr| std::slice::from_raw_parts_mut(ptr as *mut T, len))
-        }
+        let mut iter = self.0.iter_mut();
+        std::array::from_fn(|_| iter.next().unwrap().make_mut())
     }
 
     pub fn into_vec(self) -> Vec<T>
     where
         T: Clone,
     {
-        if self.0.vtable.drop as usize == vec::clear_vec::<T, CHANNELS> as usize {
-            let size = self.len() * CHANNELS;
-            let result =
-                unsafe { Vec::from_raw_parts(self.0.ptrs[0] as *mut _, size, self.0.data) };
-            std::mem::forget(self);
-            result
+        if CHANNELS == 1 {
+            // For single channel, use ImageChannel::into_vec which preserves pointer reuse
+            // SAFETY: When CHANNELS == 1, we know the array has exactly one element
+            unsafe {
+                let channel = std::ptr::read(self.0.as_ptr());
+                std::mem::forget(self);
+                channel.into_vec()
+            }
         } else {
-            let buffers = self.buffers();
+            // For multiple channels, concatenate them
             let mut result = Vec::with_capacity(self.len() * CHANNELS);
-            for buf in buffers {
-                result.extend_from_slice(buf);
+            for channel in self.0 {
+                result.extend_from_slice(channel.buffer());
             }
             result
         }
     }
 
     pub fn width(&self) -> NonZeroU32 {
-        self.0.width
+        // All channels have the same width (validated at construction)
+        if CHANNELS > 0 {
+            self.0[0].width()
+        } else {
+            NonZeroU32::MIN
+        }
     }
 
     pub fn height(&self) -> NonZeroU32 {
-        self.0.height
+        // All channels have the same height (validated at construction)
+        if CHANNELS > 0 {
+            self.0[0].height()
+        } else {
+            NonZeroU32::MIN
+        }
     }
 
     pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
-        (self.0.width, self.0.height)
+        // All channels have the same dimensions (validated at construction)
+        if CHANNELS > 0 {
+            self.0[0].dimensions()
+        } else {
+            (NonZeroU32::MIN, NonZeroU32::MIN)
+        }
     }
 
     pub fn from_interleaved(i: &Image<[T; CHANNELS], 1>) -> Self
@@ -192,8 +221,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
 
 impl<T> Image<T, 1> {
     pub const fn buffer(&self) -> &[T] {
-        let len = self.0.width.get() as usize * self.0.height.get() as usize;
-        unsafe { std::slice::from_raw_parts(self.0.ptrs[0], len) }
+        self.0[0].buffer()
     }
 }
 
@@ -250,8 +278,8 @@ pub struct ImageVtable<T: 'static, const CHANNELS: usize> {
 impl<TP: std::any::Any, const CHANNELS: usize> Debug for Image<TP, CHANNELS> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Image")
-            .field("width", &self.0.width)
-            .field("height", &self.0.height)
+            .field("width", &self.width())
+            .field("height", &self.height())
             .field("channels", &CHANNELS)
             .field("pixel", &std::any::type_name::<TP>())
             .finish()
@@ -435,7 +463,7 @@ mod tests {
         ));
     }
 
-    fn test_entire_vtable<T: 'static + Default + Eq + Debug, const SIZE: usize>(
+    fn test_entire_vtable<T: 'static + Default + Eq + Debug + Clone, const SIZE: usize>(
         mut image: Image<T, SIZE>,
     ) {
         for channel in image.make_mut() {
