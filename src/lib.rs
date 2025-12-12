@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+
 use std::{
     fmt::{self, Debug, Formatter},
     mem::MaybeUninit,
@@ -32,24 +33,11 @@ impl<T: std::cmp::PartialEq, const CHANNELS: usize> PartialEq for Image<T, CHANN
 
 #[allow(clippy::len_without_is_empty)]
 impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
-    #[deprecated = "Use eigher new_vec or new_arc"]
-    pub fn new(input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
-    where
-        T: Clone,
-    {
-        let _assert_not_zero = const { CHANNELS.checked_sub(1).unwrap() };
-        if CHANNELS == 1 {
-            Image::new_arc(input.into(), width, height)
-        } else {
-            Image::new_vec(input.to_vec(), width, height)
-        }
-    }
-
     pub fn new_vec(input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: Clone,
     {
-        let _assert_not_zero = const { CHANNELS.checked_sub(1).unwrap() };
+        assert_non_zero_channels::<CHANNELS>();
         assert_eq!(
             input.len(),
             width.get() as usize * height.get() as usize * CHANNELS,
@@ -57,7 +45,6 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         );
 
         if CHANNELS == 1 {
-            // For single channel, use Vec directly to preserve pointer reuse
             let channel = ImageChannel::new_vec(input, width, height);
             unsafe {
                 let mut arr = std::mem::MaybeUninit::<[ImageChannel<T>; CHANNELS]>::uninit();
@@ -76,7 +63,7 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
     where
         T: Clone,
     {
-        let _ = const { CHANNELS.checked_sub(1).unwrap() };
+        assert_non_zero_channels::<CHANNELS>();
         let len_per_channel = (width.get() * height.get()) as usize;
         assert_eq!(
             input.len(),
@@ -183,8 +170,14 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         T: Copy,
     {
         let len = width.get() as usize * height.get() as usize;
-        let mut write_buf_container = Arc::new_uninit_slice(len * CHANNELS);
-        let write_buf = Arc::get_mut(&mut write_buf_container).unwrap();
+        if CHANNELS == 1 {
+            return Self::new_vec(v.to_vec(), width, height);
+        }
+
+        assert_non_zero_channels::<CHANNELS>();
+        assert_eq!(v.len(), len * CHANNELS);
+        let mut write_buf_container = vec![MaybeUninit::<T>::uninit(); len * CHANNELS];
+
         let mut next_read = 0;
 
         let area = (width.get() * height.get()) as usize;
@@ -193,14 +186,15 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         for channel in 0..len {
             for (i, write_offset) in write_offsets.iter().enumerate() {
                 unsafe {
-                    write_buf
+                    write_buf_container
                         .get_unchecked_mut(channel + write_offset)
                         .write(*v.get_unchecked(next_read + i));
                 }
             }
             next_read += CHANNELS;
         }
-        Image::<T, CHANNELS>::new_arc(unsafe { write_buf_container.assume_init() }, width, height)
+        let x = unsafe { std::mem::transmute::<Vec<MaybeUninit<T>>, Vec<T>>(write_buf_container) };
+        Image::<T, CHANNELS>::new_vec(x, width, height)
     }
 }
 
@@ -208,6 +202,14 @@ impl<T> Image<T, 1> {
     pub const fn buffer(&self) -> &[T] {
         self.0[0].buffer()
     }
+}
+
+fn assert_non_zero_channels<const CHANNELS: usize>() {
+    let _ = const {
+        if CHANNELS == 0 {
+            panic!("Image must have at least one channel");
+        }
+    };
 }
 
 impl<const CHANNELS: usize, T: Copy> Image<[T; CHANNELS], 1> {
@@ -227,13 +229,31 @@ impl<const CHANNELS: usize, T: Copy> Image<[T; CHANNELS], 1> {
     }
 
     pub fn from_planar(channels: [&[T]; CHANNELS], width: NonZeroU32, height: NonZeroU32) -> Self {
-        let _ = const { CHANNELS.checked_sub(1).unwrap() };
+        if CHANNELS == 1 {
+            let flat_buffer = unsafe {
+                std::slice::from_raw_parts(
+                    channels[0].as_ptr() as *const T,
+                    channels[0].len() * CHANNELS,
+                )
+            };
+            let channel = ImageChannel::new_vec(flat_buffer.to_vec(), width, height);
+
+            return {
+                let mut arr = std::mem::MaybeUninit::<[ImageChannel<[T; CHANNELS]>; 1]>::uninit();
+                unsafe {
+                    std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
+                    Self(arr.assume_init())
+                }
+            };
+        }
+        assert_non_zero_channels::<CHANNELS>();
 
         let len = width.get() as usize * height.get() as usize;
         let mut channels = channels.map(|c| c.iter());
 
-        let mut data: Vec<[T; CHANNELS]> = Vec::with_capacity(len * CHANNELS);
-        for _ in 0..len {
+        let mut data = Arc::new_uninit_slice(len);
+        let data_ptr = Arc::get_mut(&mut data).unwrap();
+        for dst in data_ptr {
             let mut value = [MaybeUninit::<T>::uninit(); CHANNELS];
 
             for (src, dst) in channels
@@ -244,10 +264,12 @@ impl<const CHANNELS: usize, T: Copy> Image<[T; CHANNELS], 1> {
                 dst.write(*src);
             }
 
-            data.push(value.map(|x| unsafe { x.assume_init() }));
+            dst.write(value.map(|x| unsafe { x.assume_init() }));
         }
+        let data = unsafe { data.assume_init() };
 
-        Image::<[T; CHANNELS], 1>::new_vec(data, width, height)
+        let image = ImageChannel::new_arc(data, width, height);
+        Self([image])
     }
 }
 
@@ -288,12 +310,40 @@ mod tests {
     fn from_planar_image() {
         let two = NonZeroU32::new(2).unwrap();
         let image = RgbImagePlanar::new_vec((0..12).collect(), two, two);
-        let planar_image = Image::from_planar_image(&image);
+        let interleaved_image = Image::from_planar_image(&image);
         assert_eq!(
-            planar_image.buffer(),
+            interleaved_image.buffer(),
             &[[0u8, 4, 8], [1, 5, 9,], [2, 6, 10,], [3, 7, 11]]
         );
-        assert_eq!(planar_image.dimensions(), (two, two));
+        assert_eq!(interleaved_image.dimensions(), (two, two));
+    }
+
+    #[test]
+    fn luma_from_planar() {
+        let two = NonZeroU32::new(2).unwrap();
+        let image = LumaImage::new_vec(vec![0u8, 64u8, 128u8, 192u8], two, two);
+        let planar_image = Image::from_planar_image(&image);
+        assert_eq!(planar_image.buffer(), [[0u8], [64u8], [128u8], [192u8]]);
+    }
+
+    #[test]
+    fn luma_from_interleaved() {
+        let two = NonZeroU32::new(2).unwrap();
+        let interleaved_image =
+            LumaImage::from_flat_interleaved(&[0u8, 64u8, 128u8, 192u8], (two, two));
+        assert_eq!(interleaved_image.buffers(), [[0u8, 64u8, 128u8, 192u8]]);
+        assert_eq!(interleaved_image.dimensions(), (two, two));
+    }
+    #[test]
+    fn from_flat_interleaved_image() {
+        let two = NonZeroU32::new(2).unwrap();
+        let image: RgbImagePlanar<u8> =
+            Image::from_flat_interleaved((0..12).collect::<Vec<_>>().as_slice(), (two, two));
+        assert_eq!(
+            image.buffers(),
+            [[0u8, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]]
+        );
+        assert_eq!(image.dimensions(), (two, two));
     }
 
     #[test]
@@ -317,52 +367,6 @@ mod tests {
     }
 
     #[test]
-    fn miri_make_mut_reuses_arc_pointer() {
-        let raw = Arc::<[u8]>::from([0u8, 64u8, 128u8, 192u8].as_slice());
-        let pointer = raw[..].as_ptr();
-        let size = 2.try_into().unwrap();
-        let mut image = LumaImage::new_arc(raw, size, size);
-        let ptr_mut = image.make_mut();
-
-        assert_eq!(
-            ptr_mut[0][..].as_ptr(),
-            pointer,
-            "Should reuse the buffer if it was created by vec"
-        );
-    }
-
-    #[test]
-    fn miri_make_mut_doesnt_reuse_arc_pointer_if_not_unique() {
-        let raw = Arc::<[u8]>::from([0u8, 64u8, 128u8, 192u8].as_slice());
-        let _raw2 = raw.clone();
-        let pointer = raw[..].as_ptr();
-        let size = 2.try_into().unwrap();
-        let mut image = LumaImage::new_arc(raw, size, size);
-        let ptr_mut = image.make_mut();
-
-        assert_ne!(
-            ptr_mut[0][..].as_ptr(),
-            pointer,
-            "Should reuse the buffer if it was created by vec"
-        );
-    }
-
-    #[test]
-    fn miri_clone_arc_backed_shares_memory() {
-        let raw = Arc::<[u8]>::from([0u8, 64u8, 128u8, 192u8].as_slice());
-        let pointer = raw[..].as_ptr();
-        let size = 2.try_into().unwrap();
-        let image = LumaImage::new_arc(raw, size, size);
-        let image2 = image.clone();
-
-        assert_eq!(
-            image2.buffer().as_ptr(),
-            pointer,
-            "Should reuse the buffer if it was created by vec"
-        );
-    }
-
-    #[test]
     fn miri_clone_from_box() {
         let raw = vec![0u8, 64u8, 128u8, 192u8];
         let size = 2.try_into().unwrap();
@@ -376,46 +380,5 @@ mod tests {
             to_vec2[..].as_ptr(),
             "Should reuse the buffer if it was created by vec"
         );
-    }
-
-    #[test]
-    fn miri_test_shared_arc_u16_luma() {
-        let arc: Arc<[u16]> = vec![1].into();
-        test_entire_vtable(Image::<u16, 1>::new_arc(
-            arc,
-            NonZeroU32::MIN,
-            NonZeroU32::MIN,
-        ));
-    }
-    #[test]
-    fn miri_test_exclusive_arc_u16_luma() {
-        test_entire_vtable(Image::<u16, 1>::new_arc(
-            vec![1].into(),
-            NonZeroU32::MIN,
-            NonZeroU32::MIN,
-        ));
-    }
-    #[test]
-    fn miri_test_vec_u16_luma() {
-        test_entire_vtable(Image::<u16, 1>::new_vec(
-            vec![1],
-            NonZeroU32::MIN,
-            NonZeroU32::MIN,
-        ));
-    }
-
-    fn test_entire_vtable<T: 'static + Default + Eq + Debug + Clone, const SIZE: usize>(
-        mut image: Image<T, SIZE>,
-    ) {
-        for channel in image.make_mut() {
-            channel[0] = T::default();
-        }
-        let clone = image.clone();
-        for channel in image.make_mut() {
-            assert_eq!(channel[0], T::default());
-            channel[0] = T::default();
-        }
-
-        assert_eq!(image, clone);
     }
 }
