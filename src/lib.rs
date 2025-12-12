@@ -59,42 +59,6 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         }
     }
 
-    pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
-    where
-        T: Clone,
-    {
-        assert_non_zero_channels::<CHANNELS>();
-        let len_per_channel = (width.get() * height.get()) as usize;
-        assert_eq!(
-            input.len(),
-            len_per_channel * CHANNELS,
-            "Incompatible Buffer-Size"
-        );
-
-        // Create CHANNELS ImageChannels, each pointing to a different slice of the same Arc
-        if CHANNELS == 1 {
-            // For single channel, use the Arc directly to preserve pointer
-            let channel = ImageChannel::new_arc(input, width, height);
-            // SAFETY: When CHANNELS == 1, we know the array has exactly one element
-            unsafe {
-                let mut arr = std::mem::MaybeUninit::<[ImageChannel<T>; CHANNELS]>::uninit();
-                std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
-                Self(arr.assume_init())
-            }
-        } else {
-            // For multiple channels, create slices
-            let channels = std::array::from_fn(|i| {
-                let start = i * len_per_channel;
-                let end = start + len_per_channel;
-                let slice = Arc::clone(&input);
-                // Create a new Arc pointing to the slice
-                let channel_slice: Arc<[T]> = Arc::from(&slice[start..end]);
-                ImageChannel::new_arc(channel_slice, width, height)
-            });
-            Self(channels)
-        }
-    }
-
     pub const fn len(&self) -> usize {
         if CHANNELS > 0 { self.0[0].len() } else { 0 }
     }
