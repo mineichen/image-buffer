@@ -249,13 +249,6 @@ impl<const CHANNELS: usize, T: Copy> Image<[T; CHANNELS], 1> {
     }
 }
 
-#[repr(C)]
-pub struct ImageVtable<T: 'static, const CHANNELS: usize> {
-    pub clone: unsafe extern "C" fn(&UnsafeImage<T, CHANNELS>) -> UnsafeImage<T, CHANNELS>,
-    pub make_mut: unsafe extern "C" fn(&mut UnsafeImage<T, CHANNELS>),
-    pub drop: unsafe extern "C" fn(&mut UnsafeImage<T, CHANNELS>),
-}
-
 impl<TP: std::any::Any, const CHANNELS: usize> Debug for Image<TP, CHANNELS> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Image")
@@ -276,54 +269,6 @@ impl<'a, T> From<&'a Image<T, 1>> for (&'a [T], NonZeroU32, NonZeroU32) {
         let buf = that.buffer();
         (buf, width, height)
     }
-}
-
-#[repr(C)]
-pub struct UnsafeImage<T: 'static, const CHANNELS: usize> {
-    pub ptrs: [*const T; CHANNELS],
-    pub width: NonZeroU32,
-    pub height: NonZeroU32,
-    pub vtable: &'static ImageVtable<T, CHANNELS>,
-    // Has to be cleaned up by clear proc too
-    pub data: usize,
-}
-impl<const CHANNELS: usize, T: 'static> UnsafeImage<T, CHANNELS> {
-    /// Don't use this method unless you need a custom image.
-    ///
-    /// Use/provide methods like new_vec() and new_arc() for safe construction
-    ///
-    /// # Safety
-    /// The vtable must be able to cleanup the fields
-    pub unsafe fn new_with_vtable(
-        ptrs: [*const T; CHANNELS],
-        width: NonZeroU32,
-        height: NonZeroU32,
-        vtable: &'static ImageVtable<T, CHANNELS>,
-        generic_field: usize,
-    ) -> Self {
-        assert!(matches!(CHANNELS, 1 | 3 | 4));
-
-        UnsafeImage {
-            ptrs,
-            width,
-            height,
-            vtable,
-            data: generic_field,
-        }
-    }
-}
-
-impl<T, const CHANNELS: usize> Drop for UnsafeImage<T, CHANNELS> {
-    fn drop(&mut self) {
-        if self.ptrs[0] as usize != 0 {
-            unsafe { (self.vtable.drop)(self) };
-        }
-    }
-}
-
-// Workaroung inability to have static which uses Outer Generics
-trait Factory<T: 'static, const CHANNELS: usize> {
-    const VTABLE: &'static ImageVtable<T, CHANNELS>;
 }
 
 #[cfg(test)]
