@@ -38,7 +38,11 @@ impl<const CHANNELS: usize, T: 'static> Image<T, CHANNELS> {
         T: Clone,
     {
         let _assert_not_zero = const { CHANNELS.checked_sub(1).unwrap() };
-        Self::new_vec(input, width, height)
+        if CHANNELS == 1 {
+            Image::new_arc(input.into(), width, height)
+        } else {
+            Image::new_vec(input.to_vec(), width, height)
+        }
     }
 
     pub fn new_vec(input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
@@ -228,9 +232,8 @@ impl<const CHANNELS: usize, T: Copy> Image<[T; CHANNELS], 1> {
         let len = width.get() as usize * height.get() as usize;
         let mut channels = channels.map(|c| c.iter());
 
-        let mut data = Arc::new_uninit_slice(len);
-        let data_ptr = Arc::get_mut(&mut data).unwrap();
-        for dst in data_ptr {
+        let mut data: Vec<[T; CHANNELS]> = Vec::with_capacity(len * CHANNELS);
+        for _ in 0..len {
             let mut value = [MaybeUninit::<T>::uninit(); CHANNELS];
 
             for (src, dst) in channels
@@ -241,11 +244,10 @@ impl<const CHANNELS: usize, T: Copy> Image<[T; CHANNELS], 1> {
                 dst.write(*src);
             }
 
-            dst.write(value.map(|x| unsafe { x.assume_init() }));
+            data.push(value.map(|x| unsafe { x.assume_init() }));
         }
-        let data = unsafe { data.assume_init() };
 
-        Image::<[T; CHANNELS], 1>::new_arc(data, width, height)
+        Image::<[T; CHANNELS], 1>::new_vec(data, width, height)
     }
 }
 
@@ -281,6 +283,19 @@ mod tests {
         let image = LumaImage::new_vec(vec![0u8, 64u8, 128u8, 192u8], size, size);
         assert_eq!(image.buffers()[0], &[0u8, 64u8, 128u8, 192u8]);
     }
+
+    #[test]
+    fn from_planar_image() {
+        let two = NonZeroU32::new(2).unwrap();
+        let image = RgbImagePlanar::new_vec((0..12).collect(), two, two);
+        let planar_image = Image::from_planar_image(&image);
+        assert_eq!(
+            planar_image.buffer(),
+            &[[0u8, 4, 8], [1, 5, 9,], [2, 6, 10,], [3, 7, 11]]
+        );
+        assert_eq!(planar_image.dimensions(), (two, two));
+    }
+
     #[test]
     fn miri_to_vec_reuses_pointer() {
         let raw = vec![0u8, 64u8, 128u8, 192u8];
