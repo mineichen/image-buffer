@@ -3,15 +3,15 @@ use std::{
     num::{NonZeroU8, NonZeroUsize},
 };
 
-use crate::Image;
+use crate::{Image, PixelType, pixel::DynamicPixelKind};
 
 /// Trait that extends `Any` with a method to clone the boxed value.
-trait CloneableDebugAny: std::any::Any + Debug + Send + Sync {
-    fn boxed_clone(&self) -> Box<dyn CloneableDebugAny>;
+trait DynamicImageBackend: std::any::Any + Debug + Send + Sync {
+    fn boxed_clone(&self) -> Box<dyn DynamicImageBackend>;
 }
 
-impl<T: Clone + Send + Sync, const CHANNELS: usize> CloneableDebugAny for Image<T, CHANNELS> {
-    fn boxed_clone(&self) -> Box<dyn CloneableDebugAny> {
+impl<T: Clone + Send + Sync, const CHANNELS: usize> DynamicImageBackend for Image<T, CHANNELS> {
+    fn boxed_clone(&self) -> Box<dyn DynamicImageBackend> {
         Box::new(self.clone())
     }
 }
@@ -22,7 +22,7 @@ impl<T: Clone + Send + Sync, const CHANNELS: usize> CloneableDebugAny for Image<
 /// It currently only allows casting back to Image to access the data
 #[derive(Debug)]
 pub struct DynamicImage {
-    data: Box<dyn CloneableDebugAny>,
+    data: Box<dyn DynamicImageBackend>,
     layout: ImageLayout<NonZeroUsize>,
 }
 
@@ -46,21 +46,14 @@ impl DynamicImage {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
-pub enum DynamicPixelKind {
-    U8,
-    U16,
-    F32,
-}
-
-impl<TPixel: PixelTypePrimitive + Send + Sync + Clone, const CHANNELS: usize>
-    From<Image<TPixel, CHANNELS>> for DynamicImage
+impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
+    for DynamicImage
 {
     fn from(value: Image<TPixel, CHANNELS>) -> Self {
         DynamicImage {
             data: Box::new(value) as _,
             layout: ImageLayout {
-                pixel_dimensions: NonZeroU8::MIN,
+                pixel_dimensions: const { NonZeroU8::new(TPixel::PIXEL_CHANNELS).unwrap() },
                 pixel_kind: TPixel::KIND,
                 buffer_dimensions: NonZeroUsize::try_from(CHANNELS)
                     .expect("Checked during construction"),
@@ -77,66 +70,6 @@ pub struct IncompatibleImageError<TInput> {
     expected: ImageLayout<usize>,
 }
 
-impl<T: PixelType + Send + Sync + Clone, const CHANNELS: usize, const PIXEL_CHANNELS: usize>
-    From<Image<[T; PIXEL_CHANNELS], CHANNELS>> for DynamicImage
-{
-    fn from(value: Image<[T; PIXEL_CHANNELS], CHANNELS>) -> Self {
-        let _non_zero = const { CHANNELS.checked_sub(1).unwrap() };
-        let _non_one = const { CHANNELS.checked_sub(1).unwrap() };
-
-        DynamicImage {
-            data: Box::new(value) as _,
-            layout: ImageLayout {
-                pixel_kind: T::KIND,
-                pixel_dimensions: NonZeroU8::try_from(
-                    u8::try_from(PIXEL_CHANNELS).expect("PIXEL_CHANNELS must be less than 256"),
-                )
-                .unwrap(),
-                buffer_dimensions: NonZeroUsize::try_from(CHANNELS)
-                    .expect("Checked during construction"),
-            },
-        }
-    }
-}
-
-trait PixelTypePrimitive {
-    const KIND: DynamicPixelKind;
-}
-
-impl PixelTypePrimitive for u8 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::U8;
-}
-
-impl PixelTypePrimitive for u16 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::U16;
-}
-
-impl PixelTypePrimitive for f32 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::F32;
-}
-
-pub trait PixelType {
-    const PIXEL_CHANNELS: NonZeroU8;
-    const KIND: DynamicPixelKind;
-}
-
-impl<T: PixelTypePrimitive> PixelType for T {
-    const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::MIN;
-    const KIND: DynamicPixelKind = T::KIND;
-}
-impl<T: PixelTypePrimitive> PixelType for [T; 2] {
-    const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::new(2).unwrap();
-    const KIND: DynamicPixelKind = T::KIND;
-}
-impl<T: PixelTypePrimitive> PixelType for [T; 3] {
-    const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::new(3).unwrap();
-    const KIND: DynamicPixelKind = T::KIND;
-}
-impl<T: PixelTypePrimitive> PixelType for [T; 4] {
-    const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::new(4).unwrap();
-    const KIND: DynamicPixelKind = T::KIND;
-}
-
 impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
     type Error = IncompatibleImageError<DynamicImage>;
 
@@ -148,7 +81,7 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHA
             None => Err(IncompatibleImageError {
                 image: value,
                 expected: ImageLayout {
-                    pixel_dimensions: T::PIXEL_CHANNELS,
+                    pixel_dimensions: const { NonZeroU8::new(T::PIXEL_CHANNELS).unwrap() },
                     pixel_kind: T::KIND,
                     buffer_dimensions: CHANNELS,
                 },
@@ -169,7 +102,7 @@ impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a 
             .ok_or(IncompatibleImageError {
                 image: value,
                 expected: ImageLayout {
-                    pixel_dimensions: T::PIXEL_CHANNELS,
+                    pixel_dimensions: const { NonZeroU8::new(T::PIXEL_CHANNELS).unwrap() },
                     pixel_kind: T::KIND,
                     buffer_dimensions: CHANNELS,
                 },
