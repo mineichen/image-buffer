@@ -6,8 +6,11 @@ use std::{
 };
 
 use crate::{
-    ImageChannel,
-    channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel},
+    ImageChannel, PixelType,
+    channel::{
+        ChannelFactory, ChannelSize, ComptimeChannelSize, ImageChannelVTable, RuntimeChannelSize,
+        UnsafeImageChannel,
+    },
 };
 
 /// Internal structure that holds a Vec (as raw parts) and reference counts
@@ -62,9 +65,9 @@ impl<T, const CHANNELS: usize> Clone for SharedVecMetadata<T, CHANNELS> {
 
 // Single generic extern "C" functions with const CHANNELS
 // These are instantiated when added to the vtable
-unsafe extern "C" fn clone_shared_vec<T: 'static, const CHANNELS: usize>(
-    image: &UnsafeImageChannel<T>,
-) -> UnsafeImageChannel<T> {
+unsafe extern "C" fn clone_shared_vec<T: 'static, TS: ChannelSize, const CHANNELS: usize>(
+    image: &UnsafeImageChannel<T, TS>,
+) -> UnsafeImageChannel<T, TS> {
     let metadata = unsafe { &mut *(image.data.cast::<SharedVecMetadata<T, CHANNELS>>()) };
 
     UnsafeImageChannel {
@@ -73,11 +76,16 @@ unsafe extern "C" fn clone_shared_vec<T: 'static, const CHANNELS: usize>(
         height: image.height,
         vtable: image.vtable,
         data: Box::into_raw(Box::new(metadata.clone())).cast(),
+        channel_size: image.channel_size.clone(),
     }
 }
 
-unsafe extern "C" fn make_mut_shared_vec<T: 'static + Clone, const CHANNELS: usize>(
-    image: &mut UnsafeImageChannel<T>,
+unsafe extern "C" fn make_mut_shared_vec<
+    T: 'static + Clone,
+    TS: ChannelSize,
+    const CHANNELS: usize,
+>(
+    image: &mut UnsafeImageChannel<T, TS>,
 ) {
     let metadata = unsafe { &mut *(image.data.cast::<SharedVecMetadata<T, CHANNELS>>()) };
     let data = metadata.data_ptr;
@@ -89,12 +97,17 @@ unsafe extern "C" fn make_mut_shared_vec<T: 'static + Clone, const CHANNELS: usi
         let slice = unsafe {
             std::slice::from_raw_parts(image.ptr, (image.width.get() * image.height.get()) as usize)
         };
-        *image = UnsafeImageChannel::new_vec(slice.to_vec(), image.width, image.height);
+        *image = UnsafeImageChannel::new_vec(
+            slice.to_vec(),
+            image.width,
+            image.height,
+            image.channel_size.clone(),
+        );
     }
 }
 
-pub(crate) extern "C" fn drop_shared_vec<T: 'static, const CHANNELS: usize>(
-    image: &mut UnsafeImageChannel<T>,
+pub(crate) extern "C" fn drop_shared_vec<T: 'static, TS: ChannelSize, const CHANNELS: usize>(
+    image: &mut UnsafeImageChannel<T, TS>,
 ) {
     unsafe {
         let metadata = Box::from_raw(image.data as *mut SharedVecMetadata<T, CHANNELS>);
@@ -112,24 +125,24 @@ struct SharedVecFactory<T: 'static, const CHANNELS: usize>(PhantomData<(T, [(); 
 
 // Implement ChannelFactory with const VTABLE using associated const
 // PhantomData makes this type unique for each T and CHANNELS combination
-impl<T: 'static + Clone, const CHANNELS: usize> ChannelFactory<T>
+impl<T: 'static + Clone, TS: ChannelSize, const CHANNELS: usize> ChannelFactory<T, TS>
     for SharedVecFactory<T, CHANNELS>
 {
-    const VTABLE: &'static ImageChannelVTable<T> = {
+    const VTABLE: &'static ImageChannelVTable<T, TS> = {
         &ImageChannelVTable {
-            clone: clone_shared_vec::<T, CHANNELS>,
-            make_mut: make_mut_shared_vec::<T, CHANNELS>,
-            drop: drop_shared_vec::<T, CHANNELS>,
+            clone: clone_shared_vec::<T, TS, CHANNELS>,
+            make_mut: make_mut_shared_vec::<T, TS, CHANNELS>,
+            drop: drop_shared_vec::<T, TS, CHANNELS>,
         }
     };
 }
 
 /// Create ImageChannels from a Vec, sharing the underlying storage
 /// Note: T: Clone is required for vtable creation, but clone/drop don't actually need it
-pub fn create_shared_channels<T: 'static + Clone, const CHANNELS: usize>(
+pub fn create_shared_channels<T: Clone, const CHANNELS: usize, TS: ChannelSize>(
     vec: Vec<T>,
-    sizes: [(NonZeroU32, NonZeroU32); CHANNELS],
-) -> [ImageChannel<T>; CHANNELS] {
+    sizes: [(NonZeroU32, NonZeroU32, TS); CHANNELS],
+) -> [ImageChannel<T, TS>; CHANNELS] {
     assert_eq!(
         vec.len(),
         sizes
@@ -143,7 +156,7 @@ pub fn create_shared_channels<T: 'static + Clone, const CHANNELS: usize>(
 
     // Create ImageChannels for each slice
     std::array::from_fn(|i| {
-        let (width, height) = sizes[i];
+        let (width, height, channel_size) = sizes[i];
         let start = width.get() as usize * height.get() as usize;
 
         let metadata = Box::new(SharedVecMetadata::<T, CHANNELS> {
@@ -152,7 +165,7 @@ pub fn create_shared_channels<T: 'static + Clone, const CHANNELS: usize>(
             start,
         });
         let metadata_ptr = Box::into_raw(metadata);
-        let vtable = <SharedVecFactory<T, CHANNELS> as ChannelFactory<T>>::VTABLE;
+        let vtable = <SharedVecFactory<T, CHANNELS> as ChannelFactory<T, TS>>::VTABLE;
 
         let ptr = base;
 
@@ -164,6 +177,7 @@ pub fn create_shared_channels<T: 'static + Clone, const CHANNELS: usize>(
                 height,
                 vtable,
                 metadata_ptr.cast(),
+                channel_size,
             ))
         }
     })
@@ -171,6 +185,8 @@ pub fn create_shared_channels<T: 'static + Clone, const CHANNELS: usize>(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU8;
+
     use super::*;
 
     #[test]
@@ -179,7 +195,10 @@ mod tests {
         let orig_ptr = vec.as_ptr();
         let width = NonZeroU32::new(2).unwrap();
         let height = NonZeroU32::new(1).unwrap();
-        let mut channels = create_shared_channels(vec, [(width, height); 3]);
+        let mut channels = create_shared_channels(
+            vec,
+            [(width, height, RuntimeChannelSize(NonZeroU8::MIN)); 3],
+        );
         let mutbuf = channels[0].make_mut();
         assert_eq!(mutbuf.as_ptr(), orig_ptr);
     }
@@ -190,7 +209,10 @@ mod tests {
         let orig_ptr = vec.as_ptr();
         let width = NonZeroU32::new(2).unwrap();
         let height = NonZeroU32::new(1).unwrap();
-        let mut channels = create_shared_channels(vec, [(width, height); 3]);
+        let mut channels = create_shared_channels(
+            vec,
+            [(width, height, RuntimeChannelSize(NonZeroU8::MIN)); 3],
+        );
         let clone = channels[0].clone();
         let mutbuf = channels[0].make_mut();
         assert_eq!(clone.buffer().as_ptr(), orig_ptr);
@@ -203,7 +225,8 @@ mod tests {
         let orig_ptr = vec.as_ptr();
         let width = NonZeroU32::new(2).unwrap();
         let height = NonZeroU32::new(1).unwrap();
-        let mut channels = create_shared_channels(vec, [(width, height); 3]);
+        let mut channels =
+            create_shared_channels(vec, [(width, height, ComptimeChannelSize::<1>()); 3]);
         drop(channels[0].clone());
         let mutbuf = channels[0].make_mut();
         assert_eq!(mutbuf.as_ptr(), orig_ptr);
@@ -219,7 +242,10 @@ mod tests {
         let height = NonZeroU32::new(1).unwrap();
         let len_per_channel = 2;
 
-        let channels = create_shared_channels::<u8, 3>(vec, [(width, height); 3]);
+        let channels = create_shared_channels::<u8, 3, _>(
+            vec,
+            [(width, height, ComptimeChannelSize::<1>()); 3],
+        );
 
         // Verify that channels point to the correct offsets in the original Vec
         assert_eq!(
@@ -245,7 +271,8 @@ mod tests {
         let width = NonZeroU32::new(2).unwrap();
         let height = NonZeroU32::new(1).unwrap();
 
-        let channels = create_shared_channels(vec, [(width, height); 2]);
+        let channels =
+            create_shared_channels(vec, [(width, height, ComptimeChannelSize::<1>()); 2]);
         let channel1_clone = channels[0].clone();
 
         assert_eq!(

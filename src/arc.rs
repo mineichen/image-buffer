@@ -1,23 +1,26 @@
 use std::{mem::ManuallyDrop, num::NonZeroU32, sync::Arc};
 
-use crate::channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel};
+use crate::{
+    ImageChannel,
+    channel::{ChannelFactory, ChannelSize, ImageChannelVTable, UnsafeImageChannel},
+};
 
 struct ArcFactory;
 
-impl<T: 'static> UnsafeImageChannel<T> {
-    pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
+impl<T: 'static, TS: ChannelSize> UnsafeImageChannel<T, TS> {
+    pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32, channel_size: TS) -> Self
     where
         T: Clone,
     {
+        let len = input.len();
         assert_eq!(
-            input.len() as u32,
-            width.get() * height.get(),
+            len,
+            Self::calc_ptr_len_from_parts(width, height, channel_size),
             "Incompatible Buffer-Size"
         );
 
-        let len = input.len();
         let ptr = Arc::into_raw(input).cast::<T>();
-        let vtable = <ArcFactory as ChannelFactory<T>>::VTABLE;
+        let vtable = <ArcFactory as ChannelFactory<T, TS>>::VTABLE;
         unsafe {
             Self::new_with_vtable(
                 ptr,
@@ -25,14 +28,17 @@ impl<T: 'static> UnsafeImageChannel<T> {
                 height,
                 vtable,
                 std::ptr::without_provenance_mut(len),
+                channel_size,
             )
         }
     }
 }
 
-impl<T: 'static + Clone> ChannelFactory<T> for ArcFactory {
-    const VTABLE: &'static ImageChannelVTable<T> = {
-        unsafe extern "C" fn make_mut<T: Clone>(image: &mut UnsafeImageChannel<T>) {
+impl<T: 'static + Clone, TS: ChannelSize> ChannelFactory<T, TS> for ArcFactory {
+    const VTABLE: &'static ImageChannelVTable<T, TS> = {
+        unsafe extern "C" fn make_mut<T: Clone, TS: ChannelSize>(
+            image: &mut UnsafeImageChannel<T, TS>,
+        ) {
             let mut arc = ManuallyDrop::new(unsafe {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptr, image.data as usize);
                 Arc::<[T]>::from_raw(ptr)
@@ -45,21 +51,28 @@ impl<T: 'static + Clone> ChannelFactory<T> for ArcFactory {
                 image.ptr = Arc::into_raw(new_data).cast::<T>();
             }
         }
-        extern "C" fn clear_arc_channel<T: Clone>(image: &mut UnsafeImageChannel<T>) {
+        extern "C" fn clear_arc_channel<T: Clone, TS: ChannelSize>(
+            image: &mut UnsafeImageChannel<T, TS>,
+        ) {
             unsafe {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptr, image.data as usize);
                 Arc::<[T]>::from_raw(ptr);
             }
         }
 
-        extern "C" fn clone_arc_channel<T: Clone>(
-            image: &UnsafeImageChannel<T>,
-        ) -> UnsafeImageChannel<T> {
+        extern "C" fn clone_arc_channel<T: Clone, TS: ChannelSize>(
+            image: &UnsafeImageChannel<T, TS>,
+        ) -> UnsafeImageChannel<T, TS> {
             let arc = ManuallyDrop::new(unsafe {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptr, image.data as usize);
                 Arc::<[T]>::from_raw(ptr)
             });
-            UnsafeImageChannel::new_arc((*arc).clone(), image.width, image.height)
+            UnsafeImageChannel::new_arc(
+                (*arc).clone(),
+                image.width,
+                image.height,
+                image.channel_size.clone(),
+            )
         }
 
         &ImageChannelVTable {
@@ -70,14 +83,23 @@ impl<T: 'static + Clone> ChannelFactory<T> for ArcFactory {
     };
 }
 
-pub(crate) extern "C" fn clone_slice_into_arc_channel<T: Clone>(
-    image: &UnsafeImageChannel<T>,
-) -> UnsafeImageChannel<T> {
+pub(crate) extern "C" fn clone_slice_into_arc_channel<T: Clone, TS: ChannelSize>(
+    image: &UnsafeImageChannel<T, TS>,
+) -> UnsafeImageChannel<T, TS> {
     let buffer = unsafe {
         std::slice::from_raw_parts(
             image.ptr,
-            image.width.get() as usize * image.height.get() as usize,
+            UnsafeImageChannel::<T, TS>::calc_ptr_len_from_parts(
+                image.width,
+                image.height,
+                image.channel_size,
+            ),
         )
     };
-    UnsafeImageChannel::new_arc(Arc::from(buffer), image.width, image.height)
+    UnsafeImageChannel::new_arc(
+        Arc::from(buffer),
+        image.width,
+        image.height,
+        image.channel_size.clone(),
+    )
 }
