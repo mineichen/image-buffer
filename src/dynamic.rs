@@ -1,13 +1,8 @@
-use std::{
-    fmt::Debug,
-    mem::MaybeUninit,
-    num::{NonZeroU8, NonZeroUsize},
-};
+use std::{fmt::Debug, mem::MaybeUninit, num::NonZeroU8};
 
 use crate::{
     Image, ImageChannel, PixelType,
-    channel::RuntimeChannelSize,
-    pixel::{DynamicPixelKind, PixelTypePrimitive},
+    pixel::{DynamicPixelKind, PixelTypePrimitive, RuntimePixelType},
 };
 
 /// Trait that extends `Any` with a method to clone the boxed value.
@@ -32,9 +27,9 @@ pub struct DynamicImage {
 
 #[derive(Debug, Clone)]
 pub enum DynamicImageChannel {
-    U8(ImageChannel<u8, RuntimeChannelSize>),
-    U16(ImageChannel<u16, RuntimeChannelSize>),
-    F32(ImageChannel<f32, RuntimeChannelSize>),
+    U8(ImageChannel<RuntimePixelType<u8>>),
+    U16(ImageChannel<RuntimePixelType<u16>>),
+    F32(ImageChannel<RuntimePixelType<f32>>),
 }
 
 impl DynamicImage {
@@ -57,8 +52,13 @@ impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<
                 .0
                 .into_iter()
                 .map(|channel| {
+                    let runtime_channel = channel.into_runtime();
                     DynamicImageChannel::from(
-                        <TPixel::Primitive as PixelTypePrimitive>::into_runtime_channel(channel),
+                        <TPixel::Primitive as PixelTypePrimitive>::into_runtime_channel(
+                            ImageChannel::<TPixel::Primitive>::from_runtime_wrapper(
+                                runtime_channel,
+                            ),
+                        ),
                     )
                 })
                 .collect(),

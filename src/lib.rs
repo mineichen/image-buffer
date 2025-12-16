@@ -28,9 +28,7 @@ pub type RgbaImagePlanar<T> = Image<T, 4>;
 
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct Image<T: PixelType, const CHANNELS: usize>(
-    [ImageChannel<T::Primitive, T::ChannelSize>; CHANNELS],
-);
+pub struct Image<T: PixelType, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
 
 impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
     fn eq(&self, other: &Self) -> bool {
@@ -64,27 +62,21 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         let cast_input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
 
         if CHANNELS == 1 {
-            let channel =
-                ImageChannel::new_vec(cast_input, width, height, T::ChannelSize::default());
+            let channel = ImageChannel::<T>::new_vec(cast_input, width, height);
             unsafe {
-                let mut arr = std::mem::MaybeUninit::<
-                    [ImageChannel<T::Primitive, T::ChannelSize>; CHANNELS],
-                >::uninit();
-                std::ptr::write(
-                    arr.as_mut_ptr() as *mut ImageChannel<T::Primitive, T::ChannelSize>,
-                    channel,
-                );
+                let mut arr = std::mem::MaybeUninit::<[ImageChannel<T>; CHANNELS]>::uninit();
+                std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
                 Self(arr.assume_init())
             }
         } else {
             Self(shared_vec::create_shared_channels(
                 cast_input,
-                [(width, height, T::ChannelSize::default()); CHANNELS],
+                [(width, height); CHANNELS],
             ))
         }
     }
 
-    pub fn into_channels(self) -> [ImageChannel<T::Primitive, T::ChannelSize>; CHANNELS] {
+    pub fn into_channels(self) -> [ImageChannel<T>; CHANNELS] {
         self.0
     }
 
