@@ -65,38 +65,99 @@ where
         self.0.width == other.0.width
             && self.0.height == other.0.height
             && self.0.channel_size == other.0.channel_size
-            && self.buffer() == other.buffer()
+            && self.flat_buffer() == other.flat_buffer()
     }
 }
 
 impl<TP: PixelType> ImageChannel<TP>
 where
+    TP: Clone,
     TP::Primitive: Clone,
 {
-    pub fn new_vec(input: Vec<TP::Primitive>, width: NonZeroU32, height: NonZeroU32) -> Self {
+    pub fn new_vec(mut input: Vec<TP>, width: NonZeroU32, height: NonZeroU32) -> Self {
         let channel_size = TP::ChannelSize::default();
-        assert_eq!(
-            input.len(),
-            calc_image_channel_len(width, height, channel_size.get()),
-            "Incompatible Buffer-Size"
-        );
+        let expected_len = width.get() as usize * height.get() as usize;
+        assert_eq!(input.len(), expected_len, "Incompatible Buffer-Size");
+
+        // Cast Vec<TP> to Vec<TP::Primitive>
+        let len = input.len();
+        let cap = input.capacity();
+
+        let ptr = input.as_mut_ptr() as *mut TP::Primitive;
+        let len = len * TP::PIXEL_CHANNELS.get() as usize;
+        let cap = cap * TP::PIXEL_CHANNELS.get() as usize;
+        std::mem::forget(input);
+
+        // Safety: TP::Primitive is expected to be an aligned fraction of TP
+        let cast_input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
 
         Self(UnsafeImageChannel::new_vec(
-            input,
+            cast_input,
             width,
             height,
             channel_size.get(),
         ))
     }
 
-    pub fn new_arc(input: Arc<[TP::Primitive]>, width: NonZeroU32, height: NonZeroU32) -> Self {
+    pub fn new_arc(input: Arc<[TP]>, width: NonZeroU32, height: NonZeroU32) -> Self {
         let channel_size = TP::ChannelSize::default();
+        let len = input.len();
+        let ptr = Arc::into_raw(input).cast::<TP::Primitive>();
+        let len = len * TP::PIXEL_CHANNELS.get() as usize;
+
+        // Safety: TP::Primitive is expected to be an aligned fraction of TP
+        let cast_input = unsafe { Arc::from_raw(std::ptr::slice_from_raw_parts(ptr, len)) };
+
         Self(UnsafeImageChannel::new_arc(
-            input,
+            cast_input,
             width,
             height,
             channel_size.get(),
         ))
+    }
+
+    pub fn buffer(&self) -> &[TP] {
+        let len = self.len();
+        let buf = unsafe { std::slice::from_raw_parts(self.0.ptr, len) };
+        let len = len / TP::PIXEL_CHANNELS.get() as usize;
+        unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const TP, len) }
+    }
+
+    pub fn make_mut(&mut self) -> &mut [TP] {
+        unsafe {
+            (self.0.vtable.make_mut)(&mut self.0);
+            let len = self.len();
+            let len = len / TP::PIXEL_CHANNELS.get() as usize;
+            std::slice::from_raw_parts_mut(self.0.ptr as *mut TP, len)
+        }
+    }
+
+    pub fn into_vec(self) -> Vec<TP>
+    where
+        TP: Clone,
+    {
+        // Get Vec<TP::Primitive> using the base implementation
+        let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<TP::Primitive>) =
+            vec::clear_vec_channel::<TP::Primitive>;
+        let mut vec = if std::ptr::fn_addr_eq(self.0.vtable.drop, vec_drop) {
+            let size = self.len();
+            let result =
+                unsafe { Vec::from_raw_parts(self.0.ptr as *mut _, size, self.0.data as usize) };
+            std::mem::forget(self);
+            result
+        } else {
+            let len = self.len();
+            let buf = unsafe { std::slice::from_raw_parts(self.0.ptr, len) };
+            buf.to_vec()
+        };
+
+        // Cast Vec<TP::Primitive> back to Vec<TP>
+        let ptr = vec.as_mut_ptr() as *mut TP;
+        let len = vec.len() / TP::PIXEL_CHANNELS.get() as usize;
+        let cap = vec.capacity() / TP::PIXEL_CHANNELS.get() as usize;
+        std::mem::forget(vec);
+
+        unsafe { Vec::from_raw_parts(ptr, len, cap) }
     }
 
     /// Don't use this method unless you need a custom image.
@@ -167,12 +228,12 @@ impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
         self.0.calc_ptr_len()
     }
 
-    pub fn buffer(&self) -> &[TP::Primitive] {
+    pub fn flat_buffer(&self) -> &[TP::Primitive] {
         let len = self.len();
         unsafe { std::slice::from_raw_parts(self.0.ptr, len) }
     }
 
-    pub fn make_mut(&mut self) -> &mut [TP::Primitive] {
+    pub fn primitive_make_mut(&mut self) -> &mut [TP::Primitive] {
         unsafe {
             (self.0.vtable.make_mut)(&mut self.0);
             let len = self.len();
@@ -180,7 +241,7 @@ impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
         }
     }
 
-    pub fn into_vec(self) -> Vec<TP::Primitive>
+    pub fn primitive_into_vec(self) -> Vec<TP::Primitive>
     where
         TP::Primitive: Clone,
     {
@@ -194,7 +255,7 @@ impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
             std::mem::forget(self);
             result
         } else {
-            self.buffer().to_vec()
+            self.flat_buffer().to_vec()
         }
     }
 
@@ -428,7 +489,7 @@ mod tests {
     #[test]
     fn miri_test_vec_rgb16_channel() {
         test_entire_vtable(ImageChannel::<[u16; 3]>::new_vec(
-            vec![1u16, 2u16, 3u16],
+            vec![[1u16, 2u16, 3u16]],
             NonZeroU32::MIN,
             NonZeroU32::MIN,
         ));
@@ -438,10 +499,10 @@ mod tests {
     where
         TP::Primitive: 'static + Default + Eq + Debug,
     {
-        image.make_mut()[0] = TP::Primitive::default();
+        image.primitive_make_mut()[0] = TP::Primitive::default();
         let clone = image.clone();
-        assert_eq!(image.make_mut()[0], TP::Primitive::default());
-        image.make_mut()[0] = TP::Primitive::default();
+        assert_eq!(image.primitive_make_mut()[0], TP::Primitive::default());
+        image.primitive_make_mut()[0] = TP::Primitive::default();
 
         assert_eq!(image, clone);
     }
