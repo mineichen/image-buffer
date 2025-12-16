@@ -5,7 +5,7 @@ use std::{
     num::NonZeroU32,
 };
 
-use pixel::PixelType;
+use pixel::PixelTypeTrait;
 
 mod arc;
 mod channel;
@@ -17,7 +17,7 @@ mod vec;
 pub use channel::ImageChannel;
 //pub use dynamic::{DynamicImage, IncompatibleImageError};
 
-use crate::{channel::ComptimeChannelSize, pixel::PixelTypePrimitive};
+use crate::pixel::PixelTypePrimitive;
 //pub use pixel::PixelType;
 
 pub type LumaImage<T> = Image<T, 1>;
@@ -28,16 +28,16 @@ pub type RgbaImagePlanar<T> = Image<T, 4>;
 
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct Image<T: PixelType, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
+pub struct Image<T: PixelTypeTrait, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
 
-impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
+impl<T: PixelTypeTrait, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
     fn eq(&self, other: &Self) -> bool {
         self.0.iter().zip(other.0.iter()).all(|(a, b)| a == b)
     }
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
+impl<const CHANNELS: usize, T: PixelTypeTrait> Image<T, CHANNELS> {
     pub fn new_vec(mut input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: Clone,
@@ -57,13 +57,9 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
                 Self(arr.assume_init())
             }
         } else {
-            // For multiple channels, we still need to cast to primitives for shared_vec
-            let ptr = input.as_mut_ptr();
-            let len = input.len();
-            let cap = input.capacity();
-            let ptr = ptr as *mut T::Primitive;
-            let len = len * T::PIXEL_CHANNELS.get() as usize;
-            let cap = cap * T::PIXEL_CHANNELS.get() as usize;
+            let ptr = input.as_mut_ptr() as *mut T::Primitive;
+            let len = input.len() * T::PIXEL_CHANNELS.get() as usize;
+            let cap = input.capacity() * T::PIXEL_CHANNELS.get() as usize;
             std::mem::forget(input);
             let cast_input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
             Self(shared_vec::create_shared_channels(
@@ -77,6 +73,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         self.0
     }
 
+    /// Returns the number of pixels in each image channel
     pub const fn len(&self) -> usize {
         let (width, height) = self.0[0].dimensions();
         assert!(width.get() <= usize::MAX as u32);
@@ -143,56 +140,55 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         }
     }
 
-    // pub fn from_interleaved(i: &Image<T, CHANNELS>) -> Self
-    // where
-    //     T: PixelType,
+    pub fn from_interleaved(i: &Image<[T; CHANNELS], 1>) -> Self
+    where
+        T: PixelTypePrimitive + Copy,
+    {
+        let (width, height) = i.dimensions();
+        Self::from_flat_interleaved(i.flat_buffer(), (width, height))
+    }
 
-    // {
-    //     let (width, height) = i.dimensions();
-    //     Self::from_flat_interleaved(i.flat_buffer(), (width, height))
-    // }
+    pub fn from_flat_interleaved(v: &[T], (width, height): (NonZeroU32, NonZeroU32)) -> Self
+    where
+        T: Copy,
+    {
+        let len = width.get() as usize * height.get() as usize;
+        if CHANNELS == 1 {
+            return Self::new_vec(v.to_vec(), width, height);
+        }
 
-    // pub fn from_flat_interleaved(v: &[T], (width, height): (NonZeroU32, NonZeroU32)) -> Self
-    // where
-    //     T: Copy,
-    // {
-    //     let len = width.get() as usize * height.get() as usize;
-    //     if CHANNELS == 1 {
-    //         return Self::new_vec(v.to_vec(), width, height);
-    //     }
+        assert_non_zero_channels::<CHANNELS>();
+        assert_eq!(v.len(), len * CHANNELS);
+        let mut write_buf_container = vec![std::mem::MaybeUninit::<T>::uninit(); len * CHANNELS];
 
-    //     assert_non_zero_channels::<CHANNELS>();
-    //     assert_eq!(v.len(), len * CHANNELS);
-    //     let mut write_buf_container = vec![MaybeUninit::<T>::uninit(); len * CHANNELS];
+        let mut next_read = 0;
 
-    //     let mut next_read = 0;
+        let area = (width.get() * height.get()) as usize;
+        let write_offsets: [_; CHANNELS] = std::array::from_fn(|i| i * area);
 
-    //     let area = (width.get() * height.get()) as usize;
-    //     let write_offsets: [_; CHANNELS] = std::array::from_fn(|i| i * area);
-
-    //     for channel in 0..len {
-    //         for (i, write_offset) in write_offsets.iter().enumerate() {
-    //             unsafe {
-    //                 write_buf_container
-    //                     .get_unchecked_mut(channel + write_offset)
-    //                     .write(*v.get_unchecked(next_read + i));
-    //             }
-    //         }
-    //         next_read += CHANNELS;
-    //     }
-    //     let x = unsafe { std::mem::transmute::<Vec<MaybeUninit<T>>, Vec<T>>(write_buf_container) };
-    //     Image::<T, CHANNELS>::new_vec(x, width, height)
-    // }
+        for pixel in 0..len {
+            for (i, write_offset) in write_offsets.iter().enumerate() {
+                unsafe {
+                    write_buf_container
+                        .get_unchecked_mut(pixel + write_offset)
+                        .write(*v.get_unchecked(next_read + i));
+                }
+            }
+            next_read += CHANNELS;
+        }
+        let x = unsafe {
+            std::mem::transmute::<Vec<std::mem::MaybeUninit<T>>, Vec<T>>(write_buf_container)
+        };
+        Image::<T, CHANNELS>::new_vec(x, width, height)
+    }
 }
 
 impl<T> Image<T, 1>
 where
-    T: PixelType<ChannelSize = ComptimeChannelSize<1>>,
+    T: PixelTypeTrait,
 {
     pub fn buffer(&self) -> &[T] {
-        let buf = self.0[0].buffer();
-
-        unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const T, self.len()) }
+        self.0[0].buffer()
     }
 }
 
@@ -209,62 +205,70 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
         self.0[0].flat_buffer()
     }
 
-    // pub fn from_planar_image(i: &Image<T, CHANNELS>) -> Self {
-    //     let (width, height) = i.dimensions();
-    //     Self::from_planar(i.buffers(), width, height)
-    // }
+    pub fn from_planar_image<const CHANNELS: usize>(i: &Image<T, CHANNELS>) -> Self
+    where
+        T: Copy,
+    {
+        let (width, height) = i.dimensions();
+        Self::from_planar(i.buffers(), width, height)
+    }
 
-    // pub fn from_planar(channels: [&[T]; CHANNELS], width: NonZeroU32, height: NonZeroU32) -> Self {
-    //     if CHANNELS == 1 {
-    //         let flat_buffer = unsafe {
-    //             std::slice::from_raw_parts(
-    //                 channels[0].as_ptr() as *const T,
-    //                 channels[0].len() * CHANNELS,
-    //             )
-    //         };
-    //         let channel = ImageChannel::new_vec(
-    //             flat_buffer.to_vec(),
-    //             width,
-    //             height,
-    //             ComptimeChannelSize::<CHANNELS>::default(),
-    //         );
+    pub fn from_planar<const CHANNELS: usize>(
+        channels: [&[T]; CHANNELS],
+        width: NonZeroU32,
+        height: NonZeroU32,
+    ) -> Self
+    where
+        T: Copy,
+    {
+        if CHANNELS == 1 {
+            let len = width.get() as usize * height.get() as usize;
+            let mut data_vec = Vec::with_capacity(len);
+            for &val in channels[0] {
+                data_vec.push([val; PIXEL_CHANNELS]);
+            }
+            let channel = ImageChannel::new_vec(data_vec, width, height);
 
-    //         return {
-    //             let mut arr = std::mem::MaybeUninit::<[ImageChannel<[T; CHANNELS]>; 1]>::uninit();
-    //             unsafe {
-    //                 std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
-    //                 Self(arr.assume_init())
-    //             }
-    //         };
-    //     }
-    //     assert_non_zero_channels::<CHANNELS>();
+            return {
+                let mut arr =
+                    std::mem::MaybeUninit::<[ImageChannel<[T; PIXEL_CHANNELS]>; 1]>::uninit();
+                unsafe {
+                    std::ptr::write(
+                        arr.as_mut_ptr() as *mut ImageChannel<[T; PIXEL_CHANNELS]>,
+                        channel,
+                    );
+                    Self(arr.assume_init())
+                }
+            };
+        }
+        assert_non_zero_channels::<CHANNELS>();
 
-    //     let len = width.get() as usize * height.get() as usize;
-    //     let mut channels = channels.map(|c| c.iter());
+        let len = width.get() as usize * height.get() as usize;
+        let mut channel_iters = channels.map(|c| c.iter());
 
-    //     let mut data = Arc::new_uninit_slice(len);
-    //     let data_ptr = Arc::get_mut(&mut data).unwrap();
-    //     for dst in data_ptr {
-    //         let mut value = [MaybeUninit::<T>::uninit(); CHANNELS];
+        let mut data_vec = vec![std::mem::MaybeUninit::<[T; PIXEL_CHANNELS]>::uninit(); len];
+        for dst in data_vec.iter_mut() {
+            let mut value = [std::mem::MaybeUninit::<T>::uninit(); PIXEL_CHANNELS];
 
-    //         for (src, dst) in channels
-    //             .iter_mut()
-    //             .map(|c| c.next().unwrap())
-    //             .zip(value.iter_mut())
-    //         {
-    //             dst.write(*src);
-    //         }
+            for (src, dst) in channel_iters
+                .iter_mut()
+                .map(|c| c.next().unwrap())
+                .zip(value.iter_mut())
+            {
+                dst.write(*src);
+            }
 
-    //         dst.write(value.map(|x| unsafe { x.assume_init() }));
-    //     }
-    //     let data = unsafe { data.assume_init() };
+            dst.write(value.map(|x| unsafe { x.assume_init() }));
+        }
+        let data_vec_init: Vec<[T; PIXEL_CHANNELS]> = unsafe { std::mem::transmute(data_vec) };
+        let data = std::sync::Arc::from(data_vec_init);
 
-    //     let image = ImageChannel::new_arc(data, width, height);
-    //     Self([image])
-    // }
+        let image = ImageChannel::new_arc(data, width, height);
+        Self([image])
+    }
 }
 
-impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
+impl<T: PixelTypeTrait, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Image")
             .field("width", &self.width())
@@ -292,47 +296,48 @@ mod tests {
         let size = 2.try_into().unwrap();
         let image = LumaImage::new_vec(vec![0u8, 64u8, 128u8, 192u8], size, size);
         assert_eq!(image.buffers()[0], &[0u8, 64u8, 128u8, 192u8]);
+        assert_eq!(image.buffer(), &[0u8, 64u8, 128u8, 192u8]);
     }
 
-    // #[test]
-    // fn from_planar_image() {
-    //     let two = NonZeroU32::new(2).unwrap();
-    //     let image = RgbImagePlanar::new_vec((0..12).collect(), two, two);
-    //     let interleaved_image = Image::from_planar_image(&image);
-    //     assert_eq!(
-    //         interleaved_image.buffer(),
-    //         &[[0u8, 4, 8], [1, 5, 9,], [2, 6, 10,], [3, 7, 11]]
-    //     );
-    //     assert_eq!(interleaved_image.dimensions(), (two, two));
-    // }
+    #[test]
+    fn from_planar_image() {
+        let two = NonZeroU32::new(2).unwrap();
+        let image = RgbImagePlanar::new_vec((0..12).collect(), two, two);
+        let interleaved_image = RgbImageInterleaved::from_planar_image(&image);
+        assert_eq!(
+            interleaved_image.buffer(),
+            &[[0u8, 4, 8], [1, 5, 9,], [2, 6, 10,], [3, 7, 11]]
+        );
+        assert_eq!(interleaved_image.dimensions(), (two, two));
+    }
 
-    // #[test]
-    // fn luma_from_planar() {
-    //     let two = NonZeroU32::new(2).unwrap();
-    //     let image = LumaImage::new_vec(vec![0u8, 64u8, 128u8, 192u8], two, two);
-    //     let planar_image = Image::from_planar_image(&image);
-    //     assert_eq!(planar_image.buffer(), [[0u8], [64u8], [128u8], [192u8]]);
-    // }
+    #[test]
+    fn luma_from_planar() {
+        let two = NonZeroU32::new(2).unwrap();
+        let image = LumaImage::new_vec(vec![0u8, 64u8, 128u8, 192u8], two, two);
+        let planar_image = Image::<[u8; 1], 1>::from_planar_image(&image);
+        assert_eq!(planar_image.buffer(), &[[0u8], [64u8], [128u8], [192u8]]);
+    }
 
-    // #[test]
-    // fn luma_from_interleaved() {
-    //     let two = NonZeroU32::new(2).unwrap();
-    //     let interleaved_image =
-    //         LumaImage::from_flat_interleaved(&[0u8, 64u8, 128u8, 192u8], (two, two));
-    //     assert_eq!(interleaved_image.buffers(), [[0u8, 64u8, 128u8, 192u8]]);
-    //     assert_eq!(interleaved_image.dimensions(), (two, two));
-    // }
-    // #[test]
-    // fn from_flat_interleaved_image() {
-    //     let two = NonZeroU32::new(2).unwrap();
-    //     let image: RgbImagePlanar<u8> =
-    //         Image::from_flat_interleaved((0..12).collect::<Vec<_>>().as_slice(), (two, two));
-    //     assert_eq!(
-    //         image.buffers(),
-    //         [[0u8, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]]
-    //     );
-    //     assert_eq!(image.dimensions(), (two, two));
-    // }
+    #[test]
+    fn luma_from_interleaved() {
+        let two = NonZeroU32::new(2).unwrap();
+        let interleaved_image =
+            LumaImage::from_flat_interleaved(&[0u8, 64u8, 128u8, 192u8], (two, two));
+        assert_eq!(interleaved_image.buffers(), [[0u8, 64u8, 128u8, 192u8]]);
+        assert_eq!(interleaved_image.dimensions(), (two, two));
+    }
+    #[test]
+    fn from_flat_interleaved_image() {
+        let two = NonZeroU32::new(2).unwrap();
+        let image: RgbImagePlanar<u8> =
+            Image::from_flat_interleaved((0..12).collect::<Vec<_>>().as_slice(), (two, two));
+        assert_eq!(
+            image.buffers(),
+            [[0u8, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]]
+        );
+        assert_eq!(image.dimensions(), (two, two));
+    }
 
     #[test]
     fn miri_to_vec_reuses_pointer() {
