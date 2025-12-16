@@ -1,15 +1,14 @@
 use std::{
     fmt::{self, Debug, Formatter},
+    marker::PhantomData,
     num::{NonZeroU8, NonZeroU32},
     sync::Arc,
 };
 
-use crate::vec;
+use crate::{pixel::PixelType, vec};
 
-pub(crate) trait ChannelSize:
-    Sized + PartialEq + Clone + Copy + Send + Sync + 'static
-{
-    fn get_pixel_channels(&self) -> NonZeroU8;
+pub trait PixelChannels: Sized + PartialEq + Clone + Copy + Send + Sync + 'static {
+    fn get(&self) -> NonZeroU8;
 }
 
 // PIXEL_CHANNELS is usize, because it's also used to define array lengths. Casting in const is not currently possible
@@ -22,8 +21,8 @@ impl<const PIXEL_CHANNELS: usize> ComptimeChannelSize<PIXEL_CHANNELS> {
     }
 }
 
-impl<const PIXEL_CHANNELS: usize> ChannelSize for ComptimeChannelSize<PIXEL_CHANNELS> {
-    fn get_pixel_channels(&self) -> NonZeroU8 {
+impl<const PIXEL_CHANNELS: usize> PixelChannels for ComptimeChannelSize<PIXEL_CHANNELS> {
+    fn get(&self) -> NonZeroU8 {
         const {
             if PIXEL_CHANNELS > 255 {
                 panic!("PIXEL_CHANNELS must be less than 256");
@@ -36,21 +35,21 @@ impl<const PIXEL_CHANNELS: usize> ChannelSize for ComptimeChannelSize<PIXEL_CHAN
 #[derive(Clone, Copy, PartialEq)]
 pub struct RuntimeChannelSize(pub(crate) NonZeroU8);
 
-impl ChannelSize for RuntimeChannelSize {
-    fn get_pixel_channels(&self) -> NonZeroU8 {
+impl PixelChannels for RuntimeChannelSize {
+    fn get(&self) -> NonZeroU8 {
         self.0
     }
 }
 
-pub struct ImageChannel<T: 'static, TS: ChannelSize>(UnsafeImageChannel<T, TS>);
+pub struct ImageChannel<T: 'static, TS: PixelChannels>(UnsafeImageChannel<T>, PhantomData<TS>);
 
-impl<T, TS: ChannelSize> Clone for ImageChannel<T, TS> {
+impl<T, TS: PixelChannels> Clone for ImageChannel<T, TS> {
     fn clone(&self) -> Self {
-        Self(unsafe { (self.0.vtable.clone)(&self.0) })
+        Self(unsafe { (self.0.vtable.clone)(&self.0) }, PhantomData)
     }
 }
 
-impl<T: std::cmp::PartialEq, TS: ChannelSize> PartialEq for ImageChannel<T, TS> {
+impl<T: std::cmp::PartialEq, TS: PixelChannels> PartialEq for ImageChannel<T, TS> {
     fn eq(&self, other: &Self) -> bool {
         self.0.width == other.0.width
             && self.0.height == other.0.height
@@ -59,20 +58,18 @@ impl<T: std::cmp::PartialEq, TS: ChannelSize> PartialEq for ImageChannel<T, TS> 
     }
 }
 
-impl<T: Clone, TS: ChannelSize> ImageChannel<T, TS> {
+impl<T: Clone, TS: PixelChannels> ImageChannel<T, TS> {
     pub fn new_vec(input: Vec<T>, width: NonZeroU32, height: NonZeroU32, channel_size: TS) -> Self {
         assert_eq!(
             input.len(),
-            UnsafeImageChannel::<T, TS>::calc_ptr_len_from_parts(width, height, channel_size),
+            calc_image_channel_len(width, height, channel_size.get()),
             "Incompatible Buffer-Size"
         );
 
-        Self(UnsafeImageChannel::new_vec(
-            input,
-            width,
-            height,
-            channel_size,
-        ))
+        Self(
+            UnsafeImageChannel::new_vec(input, width, height, channel_size.get()),
+            PhantomData,
+        )
     }
 
     pub fn new_arc(
@@ -81,12 +78,10 @@ impl<T: Clone, TS: ChannelSize> ImageChannel<T, TS> {
         height: NonZeroU32,
         channel_size: TS,
     ) -> Self {
-        Self(UnsafeImageChannel::new_arc(
-            input,
-            width,
-            height,
-            channel_size,
-        ))
+        Self(
+            UnsafeImageChannel::new_arc(input, width, height, channel_size.get()),
+            PhantomData,
+        )
     }
 
     /// Don't use this method unless you need a custom image.
@@ -99,7 +94,7 @@ impl<T: Clone, TS: ChannelSize> ImageChannel<T, TS> {
         ptr: *const T,
         width: NonZeroU32,
         height: NonZeroU32,
-        vtable: &'static ImageChannelVTable<T, TS>,
+        vtable: &'static ImageChannelVTable<T>,
         generic_field: *mut (),
         channel_size: TS,
     ) -> Self
@@ -107,21 +102,35 @@ impl<T: Clone, TS: ChannelSize> ImageChannel<T, TS> {
         T: Send + Sync,
     {
         unsafe {
-            Self(UnsafeImageChannel::new_with_vtable(
-                ptr,
-                width,
-                height,
-                vtable,
-                generic_field,
-                channel_size,
-            ))
+            Self(
+                UnsafeImageChannel::new_with_vtable(
+                    ptr,
+                    width,
+                    height,
+                    vtable,
+                    generic_field,
+                    channel_size.get(),
+                ),
+                PhantomData,
+            )
+        }
+    }
+    pub fn into_runtime(self) -> ImageChannel<T, RuntimeChannelSize> {
+        ImageChannel(self.0, PhantomData)
+    }
+
+    pub fn try_into_comptime<TCH: PixelType>(self) -> Option<ImageChannel<T, TCH::ChannelSize>> {
+        if self.0.channel_size == TCH::PIXEL_CHANNELS {
+            Some(ImageChannel(self.0, PhantomData))
+        } else {
+            None
         }
     }
 }
-impl<T: 'static, TS: ChannelSize> ImageChannel<T, TS> {
+impl<T: 'static, TS: PixelChannels> ImageChannel<T, TS> {
     /// Create an ImageChannel from an UnsafeImageChannel (used internally)
-    pub(crate) fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<T, TS>) -> Self {
-        Self(unsafe_channel)
+    pub(crate) fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<T>) -> Self {
+        Self(unsafe_channel, PhantomData)
     }
 
     #[allow(clippy::len_without_is_empty)]
@@ -146,8 +155,8 @@ impl<T: 'static, TS: ChannelSize> ImageChannel<T, TS> {
     where
         T: Clone,
     {
-        let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<T, TS>) =
-            vec::clear_vec_channel::<T, TS>;
+        let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<T>) =
+            vec::clear_vec_channel::<T>;
         // Check if this is a Vec-backed channel
         if std::ptr::fn_addr_eq(self.0.vtable.drop, vec_drop) {
             let size = self.len();
@@ -156,11 +165,7 @@ impl<T: 'static, TS: ChannelSize> ImageChannel<T, TS> {
             std::mem::forget(self);
             result
         } else {
-            // Arc-backed, SharedVec, or other - clone the data
-            let buffer = self.buffer();
-            let mut result = Vec::with_capacity(self.len());
-            result.extend_from_slice(buffer);
-            result
+            self.buffer().to_vec()
         }
     }
 
@@ -177,39 +182,44 @@ impl<T: 'static, TS: ChannelSize> ImageChannel<T, TS> {
     }
 }
 
-impl<TP: std::any::Any, S: ChannelSize> Debug for ImageChannel<TP, S> {
+impl<TP: std::any::Any, S: PixelChannels> Debug for ImageChannel<TP, S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ImageChannel")
             .field("width", &self.0.width)
             .field("height", &self.0.height)
             .field("pixel", &std::any::type_name::<TP>())
-            .field("pixel_channels", &self.0.channel_size.get_pixel_channels())
+            .field("pixel_channels", &self.0.channel_size.get())
             .finish()
     }
 }
 
-unsafe impl<TP: Send, S: ChannelSize> Send for ImageChannel<TP, S> {}
-unsafe impl<TP: Sync, S: ChannelSize> Sync for ImageChannel<TP, S> {}
+unsafe impl<TP: Send, S: PixelChannels> Send for ImageChannel<TP, S> {}
+unsafe impl<TP: Sync, S: PixelChannels> Sync for ImageChannel<TP, S> {}
 
+/// VTable for ImageChannel
+/// Reasons for not using the Bytes crate:
+/// - Ability to have non static Images (Image<u8, 1> could become ImageRef<'static, u8, 1> in the future)
+/// - Beign ABI-Stable and thus sharable between dylibs
+/// - Initial design was much different... If the two arguments above are not enough, refactor to Bytes might be a good choice
 #[repr(C)]
-pub struct ImageChannelVTable<T: 'static, TS: ChannelSize> {
-    pub clone: unsafe extern "C" fn(&UnsafeImageChannel<T, TS>) -> UnsafeImageChannel<T, TS>,
-    pub make_mut: unsafe extern "C" fn(&mut UnsafeImageChannel<T, TS>),
-    pub drop: unsafe extern "C" fn(&mut UnsafeImageChannel<T, TS>),
+pub struct ImageChannelVTable<T: 'static> {
+    pub clone: unsafe extern "C" fn(&UnsafeImageChannel<T>) -> UnsafeImageChannel<T>,
+    pub make_mut: unsafe extern "C" fn(&mut UnsafeImageChannel<T>),
+    pub drop: unsafe extern "C" fn(&mut UnsafeImageChannel<T>),
 }
 
 #[repr(C)]
-pub struct UnsafeImageChannel<T: 'static, TS: ChannelSize> {
+pub struct UnsafeImageChannel<T: 'static> {
     pub ptr: *const T,
     pub width: NonZeroU32,
     pub height: NonZeroU32,
-    pub vtable: &'static ImageChannelVTable<T, TS>,
+    pub vtable: &'static ImageChannelVTable<T>,
     // Has to be cleaned up by clear proc too
     pub data: *mut (),
-    pub channel_size: TS,
+    pub channel_size: NonZeroU8,
 }
 
-impl<T: 'static, TS: ChannelSize> UnsafeImageChannel<T, TS> {
+impl<T: 'static> UnsafeImageChannel<T> {
     /// Don't use this method unless you need a custom image.
     ///
     /// Use/provide methods like new_vec() and new_arc() for safe construction
@@ -220,9 +230,9 @@ impl<T: 'static, TS: ChannelSize> UnsafeImageChannel<T, TS> {
         ptr: *const T,
         width: NonZeroU32,
         height: NonZeroU32,
-        vtable: &'static ImageChannelVTable<T, TS>,
+        vtable: &'static ImageChannelVTable<T>,
         generic_field: *mut (),
-        channel_size: TS,
+        channel_size: NonZeroU8,
     ) -> Self {
         UnsafeImageChannel {
             ptr,
@@ -235,24 +245,21 @@ impl<T: 'static, TS: ChannelSize> UnsafeImageChannel<T, TS> {
     }
 
     pub fn calc_ptr_len(&self) -> usize {
-        Self::calc_ptr_len_from_parts(self.width, self.height, self.channel_size)
-    }
-
-    pub(crate) fn calc_ptr_len_from_parts(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        channel_size: impl ChannelSize,
-    ) -> usize {
-        assert!(width.get() <= usize::MAX as u32);
-        assert!(height.get() <= usize::MAX as u32);
-
-        width.get() as usize
-            * height.get() as usize
-            * channel_size.get_pixel_channels().get() as usize
+        calc_image_channel_len(self.width, self.height, self.channel_size)
     }
 }
+pub(crate) fn calc_image_channel_len(
+    width: NonZeroU32,
+    height: NonZeroU32,
+    channel_size: NonZeroU8,
+) -> usize {
+    assert!(width.get() <= usize::MAX as u32);
+    assert!(height.get() <= usize::MAX as u32);
 
-impl<T, TS: ChannelSize> Drop for UnsafeImageChannel<T, TS> {
+    width.get() as usize * height.get() as usize * channel_size.get() as usize
+}
+
+impl<T> Drop for UnsafeImageChannel<T> {
     fn drop(&mut self) {
         if self.ptr as usize != 0 {
             unsafe { (self.vtable.drop)(self) };
@@ -261,8 +268,8 @@ impl<T, TS: ChannelSize> Drop for UnsafeImageChannel<T, TS> {
 }
 
 // Workaround inability to have static which uses Outer Generics
-pub(crate) trait ChannelFactory<T: 'static, TS: ChannelSize> {
-    const VTABLE: &'static ImageChannelVTable<T, TS>;
+pub(crate) trait ChannelFactory<T: 'static> {
+    const VTABLE: &'static ImageChannelVTable<T>;
 }
 
 #[cfg(test)]
@@ -404,7 +411,7 @@ mod tests {
         ));
     }
 
-    fn test_entire_vtable<T: 'static + Default + Eq + Debug, TS: ChannelSize>(
+    fn test_entire_vtable<T: 'static + Default + Eq + Debug, TS: PixelChannels>(
         mut image: ImageChannel<T, TS>,
     ) {
         image.make_mut()[0] = T::default();

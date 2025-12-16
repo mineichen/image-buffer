@@ -8,7 +8,7 @@ use std::{
 use crate::{
     ImageChannel, PixelType,
     channel::{
-        ChannelFactory, ChannelSize, ComptimeChannelSize, ImageChannelVTable, RuntimeChannelSize,
+        ChannelFactory, ComptimeChannelSize, ImageChannelVTable, PixelChannels, RuntimeChannelSize,
         UnsafeImageChannel,
     },
 };
@@ -65,9 +65,9 @@ impl<T, const CHANNELS: usize> Clone for SharedVecMetadata<T, CHANNELS> {
 
 // Single generic extern "C" functions with const CHANNELS
 // These are instantiated when added to the vtable
-unsafe extern "C" fn clone_shared_vec<T: 'static, TS: ChannelSize, const CHANNELS: usize>(
-    image: &UnsafeImageChannel<T, TS>,
-) -> UnsafeImageChannel<T, TS> {
+unsafe extern "C" fn clone_shared_vec<T: 'static, const CHANNELS: usize>(
+    image: &UnsafeImageChannel<T>,
+) -> UnsafeImageChannel<T> {
     let metadata = unsafe { &mut *(image.data.cast::<SharedVecMetadata<T, CHANNELS>>()) };
 
     UnsafeImageChannel {
@@ -80,12 +80,8 @@ unsafe extern "C" fn clone_shared_vec<T: 'static, TS: ChannelSize, const CHANNEL
     }
 }
 
-unsafe extern "C" fn make_mut_shared_vec<
-    T: 'static + Clone,
-    TS: ChannelSize,
-    const CHANNELS: usize,
->(
-    image: &mut UnsafeImageChannel<T, TS>,
+unsafe extern "C" fn make_mut_shared_vec<T: 'static + Clone, const CHANNELS: usize>(
+    image: &mut UnsafeImageChannel<T>,
 ) {
     let metadata = unsafe { &mut *(image.data.cast::<SharedVecMetadata<T, CHANNELS>>()) };
     let data = metadata.data_ptr;
@@ -106,8 +102,8 @@ unsafe extern "C" fn make_mut_shared_vec<
     }
 }
 
-pub(crate) extern "C" fn drop_shared_vec<T: 'static, TS: ChannelSize, const CHANNELS: usize>(
-    image: &mut UnsafeImageChannel<T, TS>,
+pub(crate) extern "C" fn drop_shared_vec<T: 'static, const CHANNELS: usize>(
+    image: &mut UnsafeImageChannel<T>,
 ) {
     unsafe {
         let metadata = Box::from_raw(image.data as *mut SharedVecMetadata<T, CHANNELS>);
@@ -125,21 +121,21 @@ struct SharedVecFactory<T: 'static, const CHANNELS: usize>(PhantomData<(T, [(); 
 
 // Implement ChannelFactory with const VTABLE using associated const
 // PhantomData makes this type unique for each T and CHANNELS combination
-impl<T: 'static + Clone, TS: ChannelSize, const CHANNELS: usize> ChannelFactory<T, TS>
+impl<T: 'static + Clone, const CHANNELS: usize> ChannelFactory<T>
     for SharedVecFactory<T, CHANNELS>
 {
-    const VTABLE: &'static ImageChannelVTable<T, TS> = {
+    const VTABLE: &'static ImageChannelVTable<T> = {
         &ImageChannelVTable {
-            clone: clone_shared_vec::<T, TS, CHANNELS>,
-            make_mut: make_mut_shared_vec::<T, TS, CHANNELS>,
-            drop: drop_shared_vec::<T, TS, CHANNELS>,
+            clone: clone_shared_vec::<T, CHANNELS>,
+            make_mut: make_mut_shared_vec::<T, CHANNELS>,
+            drop: drop_shared_vec::<T, CHANNELS>,
         }
     };
 }
 
 /// Create ImageChannels from a Vec, sharing the underlying storage
 /// Note: T: Clone is required for vtable creation, but clone/drop don't actually need it
-pub fn create_shared_channels<T: Clone, const CHANNELS: usize, TS: ChannelSize>(
+pub fn create_shared_channels<T: Clone, const CHANNELS: usize, TS: PixelChannels>(
     vec: Vec<T>,
     sizes: [(NonZeroU32, NonZeroU32, TS); CHANNELS],
 ) -> [ImageChannel<T, TS>; CHANNELS] {
@@ -165,7 +161,7 @@ pub fn create_shared_channels<T: Clone, const CHANNELS: usize, TS: ChannelSize>(
             start,
         });
         let metadata_ptr = Box::into_raw(metadata);
-        let vtable = <SharedVecFactory<T, CHANNELS> as ChannelFactory<T, TS>>::VTABLE;
+        let vtable = <SharedVecFactory<T, CHANNELS> as ChannelFactory<T>>::VTABLE;
 
         let ptr = base;
 
@@ -177,7 +173,7 @@ pub fn create_shared_channels<T: Clone, const CHANNELS: usize, TS: ChannelSize>(
                 height,
                 vtable,
                 metadata_ptr.cast(),
-                channel_size,
+                channel_size.get(),
             ))
         }
     })
