@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    pixel::{PixelType, PixelTypePrimitive, RuntimePixelType, RuntimePixelTypeTrait},
+    pixel::{FlatPixelType, PixelTypePrimitive, PixelTypeTrait, RuntimePixelTypeTrait},
     vec,
 };
 
@@ -69,7 +69,7 @@ where
     }
 }
 
-impl<TP: PixelType> ImageChannel<TP>
+impl<TP: PixelTypeTrait> ImageChannel<TP>
 where
     TP: Clone,
     TP::Primitive: Clone,
@@ -191,25 +191,23 @@ where
 }
 
 impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
-    pub fn into_runtime(self) -> ImageChannel<RuntimePixelType<TP::Primitive>> {
+    pub fn into_runtime(self) -> ImageChannel<FlatPixelType<TP::Primitive>> {
         ImageChannel(self.0)
     }
 
     /// Convert from RuntimePixelTypeWrapper back to the primitive type
-    pub fn from_runtime_wrapper<Prim: PixelTypePrimitive>(
-        wrapper: ImageChannel<RuntimePixelType<Prim>>,
+    pub(crate) fn from_runtime_wrapper<Prim: PixelTypePrimitive>(
+        wrapper: ImageChannel<FlatPixelType<Prim>>,
     ) -> ImageChannel<Prim> {
         ImageChannel(wrapper.0)
     }
 
-    pub fn try_into_comptime<TCH: PixelType>(self) -> Option<ImageChannel<TCH>>
+    pub fn try_into_comptime<TPNew: PixelTypeTrait>(self) -> Option<ImageChannel<TPNew>>
     where
-        TP::Primitive: std::marker::Sized,
-        TCH: PixelType<Primitive = TP::Primitive>,
-        TCH::Primitive: std::marker::Sized,
+        TPNew: PixelTypeTrait<Primitive = TP::Primitive>,
     {
-        if self.0.channel_size == TCH::PIXEL_CHANNELS
-            && std::any::TypeId::of::<TP::Primitive>() == std::any::TypeId::of::<TCH::Primitive>()
+        if self.0.channel_size == TPNew::PIXEL_CHANNELS
+            && std::any::TypeId::of::<TP::Primitive>() == std::any::TypeId::of::<TPNew::Primitive>()
         {
             Some(ImageChannel(self.0))
         } else {

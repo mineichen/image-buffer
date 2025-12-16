@@ -1,8 +1,8 @@
 use std::{fmt::Debug, mem::MaybeUninit, num::NonZeroU8};
 
 use crate::{
-    Image, ImageChannel, PixelType,
-    pixel::{DynamicPixelKind, PixelTypePrimitive, RuntimePixelType},
+    Image, ImageChannel, PixelTypeTrait,
+    pixel::{DynamicPixelKind, FlatPixelType, PixelTypePrimitive},
 };
 
 /// Trait that extends `Any` with a method to clone the boxed value.
@@ -27,9 +27,9 @@ pub struct DynamicImage {
 
 #[derive(Debug, Clone)]
 pub enum DynamicImageChannel {
-    U8(ImageChannel<RuntimePixelType<u8>>),
-    U16(ImageChannel<RuntimePixelType<u16>>),
-    F32(ImageChannel<RuntimePixelType<f32>>),
+    U8(ImageChannel<FlatPixelType<u8>>),
+    U16(ImageChannel<FlatPixelType<u16>>),
+    F32(ImageChannel<FlatPixelType<f32>>),
 }
 
 impl DynamicImage {
@@ -43,8 +43,8 @@ impl DynamicImage {
     // }
 }
 
-impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
-    for DynamicImage
+impl<TPixel: PixelTypeTrait + Send + Sync + Clone, const CHANNELS: usize>
+    From<Image<TPixel, CHANNELS>> for DynamicImage
 {
     fn from(value: Image<TPixel, CHANNELS>) -> Self {
         DynamicImage {
@@ -74,7 +74,7 @@ pub struct IncompatibleImageError<TInput> {
     expected: ImageLayout<usize>,
 }
 
-impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
+impl<T: PixelTypeTrait, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
     type Error = IncompatibleImageError<DynamicImage>;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
