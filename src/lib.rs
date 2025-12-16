@@ -49,26 +49,23 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             "Incompatible Buffer-Size"
         );
 
-        let ptr = input.as_mut_ptr();
-        let len = input.len();
-        let cap = input.capacity();
-
-        let ptr = ptr as *mut T::Primitive;
-        let len = len * T::PIXEL_CHANNELS.get() as usize;
-        let cap = cap * T::PIXEL_CHANNELS.get() as usize;
-        std::mem::forget(input);
-
-        // Safety: T::Primitive is expected to be a aligned fraction of T...
-        let cast_input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
-
         if CHANNELS == 1 {
-            let channel = ImageChannel::<T>::new_vec(cast_input, width, height);
+            let channel = ImageChannel::<T>::new_vec(input, width, height);
             unsafe {
                 let mut arr = std::mem::MaybeUninit::<[ImageChannel<T>; CHANNELS]>::uninit();
                 std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
                 Self(arr.assume_init())
             }
         } else {
+            // For multiple channels, we still need to cast to primitives for shared_vec
+            let ptr = input.as_mut_ptr();
+            let len = input.len();
+            let cap = input.capacity();
+            let ptr = ptr as *mut T::Primitive;
+            let len = len * T::PIXEL_CHANNELS.get() as usize;
+            let cap = cap * T::PIXEL_CHANNELS.get() as usize;
+            std::mem::forget(input);
+            let cast_input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
             Self(shared_vec::create_shared_channels(
                 cast_input,
                 [(width, height); CHANNELS],
@@ -89,23 +86,12 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     }
 
     pub fn buffers(&self) -> [&[T]; CHANNELS] {
-        std::array::from_fn(|i| {
-            let buf = self.0[i].buffer();
-            unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const T, self.len()) }
-        })
+        std::array::from_fn(|i| self.0[i].buffer())
     }
 
     pub fn make_mut(&mut self) -> [&mut [T]; CHANNELS] {
         let mut iter = self.0.iter_mut();
-        std::array::from_fn(|_| {
-            let buf = iter.next().unwrap().make_mut();
-            unsafe {
-                std::slice::from_raw_parts_mut(
-                    buf.as_mut_ptr() as *mut T,
-                    buf.len() / T::PIXEL_CHANNELS.get() as usize,
-                )
-            }
-        })
+        std::array::from_fn(|_| iter.next().unwrap().make_mut())
     }
 
     pub fn into_vec(mut self) -> Vec<T>
@@ -119,29 +105,12 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             std::mem::forget(self);
             let channel = unsafe { std::ptr::read(ch_ptr) };
 
-            let mut vec = channel.into_vec();
-
-            let len = vec.len();
-            let cap = vec.capacity();
-            let ptr = vec.as_mut_ptr() as *mut T;
-            let len = len / T::PIXEL_CHANNELS.get() as usize;
-            let cap = cap / T::PIXEL_CHANNELS.get() as usize;
-            std::mem::forget(vec);
-
-            unsafe { Vec::from_raw_parts(ptr, len, cap) }
+            channel.into_vec()
         } else {
             // For multiple channels, concatenate them
-            let mut result =
-                Vec::with_capacity(self.len() * CHANNELS * T::PIXEL_CHANNELS.get() as usize);
+            let mut result = Vec::with_capacity(self.len() * CHANNELS);
             for channel in self.0 {
-                let buf = channel.buffer();
-                let slice = unsafe {
-                    std::slice::from_raw_parts(
-                        buf.as_ptr() as *const T,
-                        buf.len() / T::PIXEL_CHANNELS.get() as usize,
-                    )
-                };
-                result.extend_from_slice(slice);
+                result.extend_from_slice(channel.buffer());
             }
             result
         }
@@ -237,7 +206,7 @@ fn assert_non_zero_channels<const CHANNELS: usize>() {
 
 impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNELS], 1> {
     pub fn flat_buffer(&self) -> &[T] {
-        &self.0[0].buffer()
+        self.0[0].flat_buffer()
     }
 
     // pub fn from_planar_image(i: &Image<T, CHANNELS>) -> Self {
