@@ -9,7 +9,7 @@ use pixel::PixelType;
 
 mod arc;
 mod channel;
-//mod dynamic;
+mod dynamic;
 mod pixel;
 mod shared_vec;
 mod vec;
@@ -132,8 +132,8 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             let len = vec.len();
             let cap = vec.capacity();
             let ptr = vec.as_mut_ptr() as *mut T;
-            let len = len * T::PIXEL_CHANNELS.get() as usize;
-            let cap = cap * T::PIXEL_CHANNELS.get() as usize;
+            let len = len / T::PIXEL_CHANNELS.get() as usize;
+            let cap = cap / T::PIXEL_CHANNELS.get() as usize;
             std::mem::forget(vec);
 
             unsafe { Vec::from_raw_parts(ptr, len, cap) }
