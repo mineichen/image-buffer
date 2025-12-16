@@ -6,24 +6,40 @@ use crate::{
     dynamic::DynamicImageChannel,
 };
 
+// Wrapper type for runtime channel sizes
+#[derive(Clone, Copy)]
+pub struct RuntimePixelType<T: PixelTypePrimitive>(std::marker::PhantomData<T>);
+
+impl<T: PixelTypePrimitive> RuntimePixelTypeTrait for RuntimePixelType<T> {
+    type Primitive = T;
+    type ChannelSize = RuntimeChannelSize;
+    const KIND: DynamicPixelKind = T::KIND;
+}
+
+impl<T: PixelTypePrimitive> Default for RuntimePixelType<T> {
+    fn default() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
 pub(crate) trait PixelTypePrimitive: Clone + PartialEq + Send + Sync + 'static {
     const KIND: DynamicPixelKind;
-    fn into_runtime_channel<TS: PixelChannels>(i: ImageChannel<Self, TS>) -> DynamicImageChannel;
+    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel;
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<Self, RuntimeChannelSize>>;
+    ) -> Option<ImageChannel<RuntimePixelType<Self>>>;
 }
 
 impl PixelTypePrimitive for u8 {
     const KIND: DynamicPixelKind = DynamicPixelKind::U8;
 
-    fn into_runtime_channel<TS: PixelChannels>(i: ImageChannel<Self, TS>) -> DynamicImageChannel {
+    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel {
         DynamicImageChannel::U8(i.into_runtime())
     }
 
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<Self, RuntimeChannelSize>> {
+    ) -> Option<ImageChannel<RuntimePixelType<Self>>> {
         if let DynamicImageChannel::U8(channel) = channel {
             Some(channel)
         } else {
@@ -34,12 +50,12 @@ impl PixelTypePrimitive for u8 {
 
 impl PixelTypePrimitive for u16 {
     const KIND: DynamicPixelKind = DynamicPixelKind::U16;
-    fn into_runtime_channel<TS: PixelChannels>(i: ImageChannel<Self, TS>) -> DynamicImageChannel {
+    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel {
         DynamicImageChannel::U16(i.into_runtime())
     }
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<Self, RuntimeChannelSize>> {
+    ) -> Option<ImageChannel<RuntimePixelType<Self>>> {
         if let DynamicImageChannel::U16(channel) = channel {
             Some(channel)
         } else {
@@ -50,12 +66,12 @@ impl PixelTypePrimitive for u16 {
 
 impl PixelTypePrimitive for f32 {
     const KIND: DynamicPixelKind = DynamicPixelKind::F32;
-    fn into_runtime_channel<TS: PixelChannels>(i: ImageChannel<Self, TS>) -> DynamicImageChannel {
+    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel {
         DynamicImageChannel::F32(i.into_runtime())
     }
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<Self, RuntimeChannelSize>> {
+    ) -> Option<ImageChannel<RuntimePixelType<Self>>> {
         if let DynamicImageChannel::F32(channel) = channel {
             Some(channel)
         } else {
@@ -64,23 +80,25 @@ impl PixelTypePrimitive for f32 {
     }
 }
 
-pub trait RuntimePixelType: Clone + Sized + 'static {
+pub trait RuntimePixelTypeTrait: Clone + Sized + 'static {
     type Primitive: PixelTypePrimitive;
     type ChannelSize: PixelChannels + Default;
     const KIND: DynamicPixelKind;
 }
 
-pub trait PixelType: RuntimePixelType + Clone + Sized + 'static {
+pub trait PixelType: RuntimePixelTypeTrait + Clone + Sized + 'static {
     const PIXEL_CHANNELS: NonZeroU8;
 }
 
-impl<T: PixelTypePrimitive> RuntimePixelType for T {
+impl<T: PixelTypePrimitive> RuntimePixelTypeTrait for T {
     type Primitive = T;
     type ChannelSize = ComptimeChannelSize<1>;
     const KIND: DynamicPixelKind = T::KIND;
 }
 
-impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> RuntimePixelType for [T; PIXEL_CHANNELS] {
+impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> RuntimePixelTypeTrait
+    for [T; PIXEL_CHANNELS]
+{
     type Primitive = T;
     type ChannelSize = ComptimeChannelSize<PIXEL_CHANNELS>;
     const KIND: DynamicPixelKind = T::KIND;

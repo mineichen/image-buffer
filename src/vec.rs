@@ -1,6 +1,6 @@
 use std::num::{NonZeroU8, NonZeroU32};
 
-use crate::channel::{ChannelFactory, ImageChannelVTable, PixelChannels, UnsafeImageChannel};
+use crate::channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel};
 
 struct VecFactory;
 

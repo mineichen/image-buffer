@@ -1,11 +1,13 @@
 use std::{
     fmt::{self, Debug, Formatter},
-    marker::PhantomData,
     num::{NonZeroU8, NonZeroU32},
     sync::Arc,
 };
 
-use crate::{pixel::PixelType, vec};
+use crate::{
+    pixel::{PixelType, PixelTypePrimitive, RuntimePixelType, RuntimePixelTypeTrait},
+    vec,
+};
 
 pub trait PixelChannels: Sized + PartialEq + Clone + Copy + Send + Sync + 'static {
     fn get(&self) -> NonZeroU8;
@@ -35,21 +37,30 @@ impl<const PIXEL_CHANNELS: usize> PixelChannels for ComptimeChannelSize<PIXEL_CH
 #[derive(Clone, Copy, PartialEq)]
 pub struct RuntimeChannelSize(pub(crate) NonZeroU8);
 
+impl Default for RuntimeChannelSize {
+    fn default() -> Self {
+        Self(NonZeroU8::MIN)
+    }
+}
+
 impl PixelChannels for RuntimeChannelSize {
     fn get(&self) -> NonZeroU8 {
         self.0
     }
 }
 
-pub struct ImageChannel<T: 'static, TS: PixelChannels>(UnsafeImageChannel<T>, PhantomData<TS>);
+pub struct ImageChannel<TP: RuntimePixelTypeTrait>(UnsafeImageChannel<TP::Primitive>);
 
-impl<T, TS: PixelChannels> Clone for ImageChannel<T, TS> {
+impl<TP: RuntimePixelTypeTrait> Clone for ImageChannel<TP> {
     fn clone(&self) -> Self {
-        Self(unsafe { (self.0.vtable.clone)(&self.0) }, PhantomData)
+        Self(unsafe { (self.0.vtable.clone)(&self.0) })
     }
 }
 
-impl<T: std::cmp::PartialEq, TS: PixelChannels> PartialEq for ImageChannel<T, TS> {
+impl<TP: RuntimePixelTypeTrait> PartialEq for ImageChannel<TP>
+where
+    TP::Primitive: std::cmp::PartialEq,
+{
     fn eq(&self, other: &Self) -> bool {
         self.0.width == other.0.width
             && self.0.height == other.0.height
@@ -58,30 +69,34 @@ impl<T: std::cmp::PartialEq, TS: PixelChannels> PartialEq for ImageChannel<T, TS
     }
 }
 
-impl<T: Clone, TS: PixelChannels> ImageChannel<T, TS> {
-    pub fn new_vec(input: Vec<T>, width: NonZeroU32, height: NonZeroU32, channel_size: TS) -> Self {
+impl<TP: PixelType> ImageChannel<TP>
+where
+    TP::Primitive: Clone,
+{
+    pub fn new_vec(input: Vec<TP::Primitive>, width: NonZeroU32, height: NonZeroU32) -> Self {
+        let channel_size = TP::ChannelSize::default();
         assert_eq!(
             input.len(),
             calc_image_channel_len(width, height, channel_size.get()),
             "Incompatible Buffer-Size"
         );
 
-        Self(
-            UnsafeImageChannel::new_vec(input, width, height, channel_size.get()),
-            PhantomData,
-        )
+        Self(UnsafeImageChannel::new_vec(
+            input,
+            width,
+            height,
+            channel_size.get(),
+        ))
     }
 
-    pub fn new_arc(
-        input: Arc<[T]>,
-        width: NonZeroU32,
-        height: NonZeroU32,
-        channel_size: TS,
-    ) -> Self {
-        Self(
-            UnsafeImageChannel::new_arc(input, width, height, channel_size.get()),
-            PhantomData,
-        )
+    pub fn new_arc(input: Arc<[TP::Primitive]>, width: NonZeroU32, height: NonZeroU32) -> Self {
+        let channel_size = TP::ChannelSize::default();
+        Self(UnsafeImageChannel::new_arc(
+            input,
+            width,
+            height,
+            channel_size.get(),
+        ))
     }
 
     /// Don't use this method unless you need a custom image.
@@ -91,46 +106,60 @@ impl<T: Clone, TS: PixelChannels> ImageChannel<T, TS> {
     /// # Safety
     /// The vtable must be able to cleanup the fields
     pub unsafe fn new_with_vtable(
-        ptr: *const T,
+        ptr: *const TP::Primitive,
         width: NonZeroU32,
         height: NonZeroU32,
-        vtable: &'static ImageChannelVTable<T>,
+        vtable: &'static ImageChannelVTable<TP::Primitive>,
         generic_field: *mut (),
-        channel_size: TS,
     ) -> Self
     where
-        T: Send + Sync,
+        TP::Primitive: Send + Sync,
     {
+        let channel_size = TP::ChannelSize::default();
         unsafe {
-            Self(
-                UnsafeImageChannel::new_with_vtable(
-                    ptr,
-                    width,
-                    height,
-                    vtable,
-                    generic_field,
-                    channel_size.get(),
-                ),
-                PhantomData,
-            )
+            Self(UnsafeImageChannel::new_with_vtable(
+                ptr,
+                width,
+                height,
+                vtable,
+                generic_field,
+                channel_size.get(),
+            ))
         }
     }
-    pub fn into_runtime(self) -> ImageChannel<T, RuntimeChannelSize> {
-        ImageChannel(self.0, PhantomData)
+}
+
+impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
+    pub fn into_runtime(self) -> ImageChannel<RuntimePixelType<TP::Primitive>> {
+        ImageChannel(self.0)
     }
 
-    pub fn try_into_comptime<TCH: PixelType>(self) -> Option<ImageChannel<T, TCH::ChannelSize>> {
-        if self.0.channel_size == TCH::PIXEL_CHANNELS {
-            Some(ImageChannel(self.0, PhantomData))
+    /// Convert from RuntimePixelTypeWrapper back to the primitive type
+    pub fn from_runtime_wrapper<Prim: PixelTypePrimitive>(
+        wrapper: ImageChannel<RuntimePixelType<Prim>>,
+    ) -> ImageChannel<Prim> {
+        ImageChannel(wrapper.0)
+    }
+
+    pub fn try_into_comptime<TCH: PixelType>(self) -> Option<ImageChannel<TCH>>
+    where
+        TP::Primitive: std::marker::Sized,
+        TCH: PixelType<Primitive = TP::Primitive>,
+        TCH::Primitive: std::marker::Sized,
+    {
+        if self.0.channel_size == TCH::PIXEL_CHANNELS
+            && std::any::TypeId::of::<TP::Primitive>() == std::any::TypeId::of::<TCH::Primitive>()
+        {
+            Some(ImageChannel(self.0))
         } else {
             None
         }
     }
 }
-impl<T: 'static, TS: PixelChannels> ImageChannel<T, TS> {
+impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
     /// Create an ImageChannel from an UnsafeImageChannel (used internally)
-    pub(crate) fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<T>) -> Self {
-        Self(unsafe_channel, PhantomData)
+    pub fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<TP::Primitive>) -> Self {
+        Self(unsafe_channel)
     }
 
     #[allow(clippy::len_without_is_empty)]
@@ -138,25 +167,25 @@ impl<T: 'static, TS: PixelChannels> ImageChannel<T, TS> {
         self.0.calc_ptr_len()
     }
 
-    pub fn buffer(&self) -> &[T] {
+    pub fn buffer(&self) -> &[TP::Primitive] {
         let len = self.len();
         unsafe { std::slice::from_raw_parts(self.0.ptr, len) }
     }
 
-    pub fn make_mut(&mut self) -> &mut [T] {
+    pub fn make_mut(&mut self) -> &mut [TP::Primitive] {
         unsafe {
             (self.0.vtable.make_mut)(&mut self.0);
             let len = self.len();
-            std::slice::from_raw_parts_mut(self.0.ptr as *mut T, len)
+            std::slice::from_raw_parts_mut(self.0.ptr as *mut TP::Primitive, len)
         }
     }
 
-    pub fn into_vec(self) -> Vec<T>
+    pub fn into_vec(self) -> Vec<TP::Primitive>
     where
-        T: Clone,
+        TP::Primitive: Clone,
     {
-        let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<T>) =
-            vec::clear_vec_channel::<T>;
+        let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<TP::Primitive>) =
+            vec::clear_vec_channel::<TP::Primitive>;
         // Check if this is a Vec-backed channel
         if std::ptr::fn_addr_eq(self.0.vtable.drop, vec_drop) {
             let size = self.len();
@@ -182,19 +211,22 @@ impl<T: 'static, TS: PixelChannels> ImageChannel<T, TS> {
     }
 }
 
-impl<TP: std::any::Any, S: PixelChannels> Debug for ImageChannel<TP, S> {
+impl<TP: RuntimePixelTypeTrait> Debug for ImageChannel<TP>
+where
+    TP::Primitive: std::any::Any,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ImageChannel")
             .field("width", &self.0.width)
             .field("height", &self.0.height)
-            .field("pixel", &std::any::type_name::<TP>())
+            .field("pixel", &std::any::type_name::<TP::Primitive>())
             .field("pixel_channels", &self.0.channel_size.get())
             .finish()
     }
 }
 
-unsafe impl<TP: Send, S: PixelChannels> Send for ImageChannel<TP, S> {}
-unsafe impl<TP: Sync, S: PixelChannels> Sync for ImageChannel<TP, S> {}
+unsafe impl<TP: RuntimePixelTypeTrait> Send for ImageChannel<TP> where TP::Primitive: Send {}
+unsafe impl<TP: RuntimePixelTypeTrait> Sync for ImageChannel<TP> where TP::Primitive: Sync {}
 
 /// VTable for ImageChannel
 /// Reasons for not using the Bytes crate:
@@ -279,12 +311,7 @@ mod tests {
     #[test]
     fn miri_create_and_clear_vec_image_channel() {
         let size = 2.try_into().unwrap();
-        let image = ImageChannel::new_vec(
-            vec![0u8, 64u8, 128u8, 192u8],
-            size,
-            size,
-            ComptimeChannelSize::<1>(),
-        );
+        let image = ImageChannel::<u8>::new_vec(vec![0u8, 64u8, 128u8, 192u8], size, size);
         assert_eq!(image.buffer(), &[0u8, 64u8, 128u8, 192u8]);
     }
 
@@ -293,7 +320,7 @@ mod tests {
         let raw = vec![0u8, 64u8, 128u8, 192u8];
         let pointer = raw[..].as_ptr();
         let size = 2.try_into().unwrap();
-        let image = ImageChannel::new_vec(raw, size, size, RuntimeChannelSize(NonZeroU8::MIN));
+        let image = ImageChannel::<u8>::new_vec(raw, size, size);
         let to_vec = image.into_vec();
 
         // Miri seems to generate clear_vec_channel::<const u8> for each call
@@ -313,7 +340,7 @@ mod tests {
         let raw = Arc::<[u8]>::from([0u8, 64u8, 128u8, 192u8].as_slice());
         let pointer = raw[..].as_ptr();
         let size = 2.try_into().unwrap();
-        let mut image = ImageChannel::new_arc(raw, size, size, RuntimeChannelSize(NonZeroU8::MIN));
+        let mut image = ImageChannel::<u8>::new_arc(raw, size, size);
         let ptr_mut = image.make_mut();
 
         assert_eq!(
@@ -329,7 +356,7 @@ mod tests {
         let _raw2 = raw.clone();
         let pointer = raw[..].as_ptr();
         let size = 2.try_into().unwrap();
-        let mut image = ImageChannel::new_arc(raw, size, size, RuntimeChannelSize(NonZeroU8::MIN));
+        let mut image = ImageChannel::<u8>::new_arc(raw, size, size);
         let ptr_mut = image.make_mut();
 
         assert_ne!(
@@ -344,7 +371,7 @@ mod tests {
         let raw = Arc::<[u8]>::from([0u8, 64u8, 128u8, 192u8].as_slice());
         let pointer = raw[..].as_ptr();
         let size = 2.try_into().unwrap();
-        let image = ImageChannel::new_arc(raw, size, size, RuntimeChannelSize(NonZeroU8::MIN));
+        let image = ImageChannel::<u8>::new_arc(raw, size, size);
         let image2 = image.clone();
 
         assert_eq!(
@@ -358,7 +385,7 @@ mod tests {
     fn miri_clone_from_vec() {
         let raw = vec![0u8, 64u8, 128u8, 192u8];
         let size = 2.try_into().unwrap();
-        let image = ImageChannel::new_vec(raw, size, size, ComptimeChannelSize::<1>());
+        let image = ImageChannel::<u8>::new_vec(raw, size, size);
         let image2 = image.clone();
         let to_vec = image.into_vec();
         let to_vec2 = image2.into_vec();
@@ -373,51 +400,48 @@ mod tests {
     #[test]
     fn miri_test_shared_arc_u16_channel() {
         let arc: Arc<[u16]> = vec![1].into();
-        test_entire_vtable(ImageChannel::new_arc(
+        test_entire_vtable(ImageChannel::<u16>::new_arc(
             arc,
             NonZeroU32::MIN,
             NonZeroU32::MIN,
-            RuntimeChannelSize(NonZeroU8::MIN),
         ));
     }
 
     #[test]
     fn miri_test_exclusive_arc_u16_channel() {
-        test_entire_vtable(ImageChannel::new_arc(
+        test_entire_vtable(ImageChannel::<u16>::new_arc(
             vec![1u16].into(),
             NonZeroU32::MIN,
             NonZeroU32::MIN,
-            RuntimeChannelSize(NonZeroU8::MIN),
         ));
     }
 
     #[test]
     fn miri_test_vec_u16_channel() {
-        test_entire_vtable(ImageChannel::new_vec(
+        test_entire_vtable(ImageChannel::<u16>::new_vec(
             vec![1u16],
             NonZeroU32::MIN,
             NonZeroU32::MIN,
-            ComptimeChannelSize::<1>(),
         ));
     }
 
     #[test]
     fn miri_test_vec_rgb16_channel() {
-        test_entire_vtable(ImageChannel::new_vec(
+        test_entire_vtable(ImageChannel::<[u16; 3]>::new_vec(
             vec![1u16, 2u16, 3u16],
             NonZeroU32::MIN,
             NonZeroU32::MIN,
-            RuntimeChannelSize(const { NonZeroU8::new(3).unwrap() }),
         ));
     }
 
-    fn test_entire_vtable<T: 'static + Default + Eq + Debug, TS: PixelChannels>(
-        mut image: ImageChannel<T, TS>,
-    ) {
-        image.make_mut()[0] = T::default();
+    fn test_entire_vtable<TP: RuntimePixelTypeTrait>(mut image: ImageChannel<TP>)
+    where
+        TP::Primitive: 'static + Default + Eq + Debug,
+    {
+        image.make_mut()[0] = TP::Primitive::default();
         let clone = image.clone();
-        assert_eq!(image.make_mut()[0], T::default());
-        image.make_mut()[0] = T::default();
+        assert_eq!(image.make_mut()[0], TP::Primitive::default());
+        image.make_mut()[0] = TP::Primitive::default();
 
         assert_eq!(image, clone);
     }

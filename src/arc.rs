@@ -4,12 +4,8 @@ use std::{
     sync::Arc,
 };
 
-use crate::{
-    ImageChannel,
-    channel::{
-        ChannelFactory, ImageChannelVTable, PixelChannels, UnsafeImageChannel,
-        calc_image_channel_len,
-    },
+use crate::channel::{
+    ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_image_channel_len,
 };
 
 struct ArcFactory;
