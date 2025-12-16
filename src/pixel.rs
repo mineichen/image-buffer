@@ -64,25 +64,33 @@ impl PixelTypePrimitive for f32 {
     }
 }
 
-pub trait PixelType: Clone + Sized + 'static {
+pub trait RuntimePixelType: Clone + Sized + 'static {
     type Primitive: PixelTypePrimitive;
     type ChannelSize: PixelChannels + Default;
-
-    const PIXEL_CHANNELS: NonZeroU8;
     const KIND: DynamicPixelKind;
 }
 
-impl<T: PixelTypePrimitive> PixelType for T {
+pub trait PixelType: RuntimePixelType + Clone + Sized + 'static {
+    const PIXEL_CHANNELS: NonZeroU8;
+}
+
+impl<T: PixelTypePrimitive> RuntimePixelType for T {
     type Primitive = T;
     type ChannelSize = ComptimeChannelSize<1>;
-
-    const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::MIN;
     const KIND: DynamicPixelKind = T::KIND;
 }
 
-impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> PixelType for [T; PIXEL_CHANNELS] {
+impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> RuntimePixelType for [T; PIXEL_CHANNELS] {
     type Primitive = T;
     type ChannelSize = ComptimeChannelSize<PIXEL_CHANNELS>;
+    const KIND: DynamicPixelKind = T::KIND;
+}
+
+impl<T: PixelTypePrimitive> PixelType for T {
+    const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::MIN;
+}
+
+impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> PixelType for [T; PIXEL_CHANNELS] {
     const PIXEL_CHANNELS: NonZeroU8 = {
         let _ = const {
             if PIXEL_CHANNELS > 255 {
@@ -94,7 +102,6 @@ impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> PixelType for [T; PIXEL
         };
         NonZeroU8::new(PIXEL_CHANNELS as u8).unwrap()
     };
-    const KIND: DynamicPixelKind = T::KIND;
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
