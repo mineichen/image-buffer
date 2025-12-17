@@ -2,7 +2,7 @@
 
 use std::{
     fmt::{self, Debug, Formatter},
-    num::NonZeroU32,
+    num::{NonZeroU8, NonZeroU32},
 };
 
 use crate::pixel::PixelTypePrimitive;
@@ -72,7 +72,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     }
 
     /// Returns the number of pixels in each image channel
-    pub const fn len(&self) -> usize {
+    pub const fn pixels_per_channel(&self) -> usize {
         let (width, height) = self.0[0].dimensions();
         assert!(width.get() <= usize::MAX as u32);
         assert!(height.get() <= usize::MAX as u32);
@@ -103,7 +103,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             channel.into_vec()
         } else {
             // For multiple channels, concatenate them
-            let mut result = Vec::with_capacity(self.len() * CHANNELS);
+            let mut result = Vec::with_capacity(self.pixels_per_channel() * CHANNELS);
             for channel in self.0 {
                 result.extend_from_slice(channel.buffer());
             }
@@ -112,30 +112,21 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     }
 
     pub fn width(&self) -> NonZeroU32 {
-        // All channels have the same width (validated at construction)
-        if CHANNELS > 0 {
-            self.0[0].width()
-        } else {
-            NonZeroU32::MIN
-        }
+        // All channels have the same height (validated at construction)
+        // CHANNELS is always > 0
+        self.0[0].width()
     }
 
     pub fn height(&self) -> NonZeroU32 {
         // All channels have the same height (validated at construction)
-        if CHANNELS > 0 {
-            self.0[0].height()
-        } else {
-            NonZeroU32::MIN
-        }
+        // CHANNELS is always > 0
+        self.0[0].height()
     }
 
     pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
-        // All channels have the same dimensions (validated at construction)
-        if CHANNELS > 0 {
-            self.0[0].dimensions()
-        } else {
-            (NonZeroU32::MIN, NonZeroU32::MIN)
-        }
+        // All channels have the same height (validated at construction)
+        // CHANNELS is always > 0
+        self.0[0].dimensions()
     }
 
     pub fn from_interleaved(i: &Image<[T; CHANNELS], 1>) -> Self
@@ -285,6 +276,13 @@ impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
 //         (buf, width, height)
 //     }
 // }
+
+const fn unwrap_usize_to_nonzero_u8(value: usize) -> NonZeroU8 {
+    if value > 255 {
+        panic!("usize must be less than 256");
+    }
+    NonZeroU8::new(value as u8).unwrap()
+}
 
 #[cfg(test)]
 mod tests {
