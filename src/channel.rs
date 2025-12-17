@@ -47,8 +47,9 @@ impl<TP: RuntimePixelType> Clone for ImageChannel<TP> {
     }
 }
 
-impl<TP: RuntimePixelType> PartialEq for ImageChannel<TP>
+impl<TP> PartialEq for ImageChannel<TP>
 where
+    TP: RuntimePixelType,
     TP::Primitive: std::cmp::PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
@@ -59,9 +60,9 @@ where
     }
 }
 
-impl<TP: PixelType> ImageChannel<TP>
+impl<TP> ImageChannel<TP>
 where
-    TP: Clone,
+    TP: PixelType,
     TP::Primitive: Clone,
 {
     /// # Panics
@@ -69,8 +70,11 @@ where
     #[must_use]
     pub fn new_vec(mut input: Vec<TP>, width: NonZeroU32, height: NonZeroU32) -> Self {
         let channel_size = TP::ChannelSize::default();
-        let expected_len = width.get() as usize * height.get() as usize;
-        assert_eq!(input.len(), expected_len, "Incompatible Buffer-Size");
+        assert_eq!(
+            input.len(),
+            calc_channel_len(width, height),
+            "Incompatible Buffer-Size"
+        );
 
         // Cast Vec<TP> to Vec<TP::Primitive>
         let len = input.len();
@@ -111,16 +115,17 @@ where
 
     #[must_use]
     pub fn buffer(&self) -> &[TP] {
-        let len = self.len();
-        let buf = unsafe { std::slice::from_raw_parts(self.0.ptr, len) };
-        let len = len / TP::PIXEL_CHANNELS.get() as usize;
-        unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<TP>(), len) }
+        unsafe { std::slice::from_raw_parts(self.0.ptr.cast::<TP>(), self.len()) }
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.calc_len()
     }
 
     pub fn make_mut(&mut self) -> &mut [TP] {
         unsafe {
             (self.0.vtable.make_mut)(&mut self.0);
-            let len = self.len();
+            let len = self.len_flat();
             let len = len / TP::PIXEL_CHANNELS.get() as usize;
             std::slice::from_raw_parts_mut(self.0.ptr as *mut TP, len)
         }
@@ -135,13 +140,13 @@ where
         let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<TP::Primitive>) =
             vec::clear_vec_channel::<TP::Primitive>;
         let mut vec = if std::ptr::fn_addr_eq(self.0.vtable.drop, vec_drop) {
-            let size = self.len();
+            let size = self.len_flat();
             let result =
                 unsafe { Vec::from_raw_parts(self.0.ptr.cast_mut(), size, self.0.data as usize) };
             std::mem::forget(self);
             result
         } else {
-            let len = self.len();
+            let len = self.len_flat();
             let buf = unsafe { std::slice::from_raw_parts(self.0.ptr, len) };
             buf.to_vec()
         };
@@ -177,9 +182,9 @@ where
                 ptr,
                 width,
                 height,
+                channel_size.get(),
                 vtable,
                 generic_field,
-                channel_size.get(),
             ))
         }
     }
@@ -217,20 +222,20 @@ impl<TP: RuntimePixelType> ImageChannel<TP> {
 
     #[allow(clippy::len_without_is_empty)]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub fn len_flat(&self) -> usize {
         self.0.calc_len_flat()
     }
 
     #[must_use]
     pub fn flat_buffer(&self) -> &[TP::Primitive] {
-        let len = self.len();
+        let len = self.len_flat();
         unsafe { std::slice::from_raw_parts(self.0.ptr, len) }
     }
 
     pub fn primitive_make_mut(&mut self) -> &mut [TP::Primitive] {
         unsafe {
             (self.0.vtable.make_mut)(&mut self.0);
-            let len = self.len();
+            let len = self.len_flat();
             std::slice::from_raw_parts_mut(self.0.ptr.cast_mut(), len)
         }
     }
@@ -244,7 +249,7 @@ impl<TP: RuntimePixelType> ImageChannel<TP> {
             vec::clear_vec_channel::<TP::Primitive>;
         // Check if this is a Vec-backed channel
         if std::ptr::fn_addr_eq(self.0.vtable.drop, vec_drop) {
-            let size = self.len();
+            let size = self.len_flat();
             let result =
                 unsafe { Vec::from_raw_parts(self.0.ptr.cast_mut(), size, self.0.data as usize) };
             std::mem::forget(self);
@@ -299,6 +304,8 @@ pub struct ImageChannelVTable<T: 'static> {
     pub drop: unsafe extern "C" fn(&mut UnsafeImageChannel<T>),
 }
 
+/// This is only externally relevant when implementing a custom storage
+/// T is usually a `PixelTypePrimitive`, but it is not enforced by the type system
 #[repr(C)]
 pub struct UnsafeImageChannel<T: 'static> {
     pub ptr: *const T,
@@ -321,35 +328,42 @@ impl<T: 'static> UnsafeImageChannel<T> {
         ptr: *const T,
         width: NonZeroU32,
         height: NonZeroU32,
-        vtable: &'static ImageChannelVTable<T>,
-        generic_field: *mut (),
         channel_size: NonZeroU8,
+        vtable: &'static ImageChannelVTable<T>,
+        data: *mut (),
     ) -> Self {
         UnsafeImageChannel {
             ptr,
             width,
             height,
             vtable,
-            data: generic_field,
+            data,
             channel_size,
         }
     }
 
+    pub(crate) const fn calc_len(&self) -> usize {
+        calc_channel_len(self.width, self.height)
+    }
     pub(crate) const fn calc_len_flat(&self) -> usize {
-        calc_image_channel_len_flat(self.width, self.height, self.channel_size)
+        calc_channel_len_flat(self.width, self.height, self.channel_size)
     }
 }
-pub(crate) const fn calc_image_channel_len_flat(
-    width: NonZeroU32,
-    height: NonZeroU32,
-    channel_size: NonZeroU8,
-) -> usize {
+
+pub(crate) const fn calc_channel_len(width: NonZeroU32, height: NonZeroU32) -> usize {
     #[allow(clippy::cast_possible_truncation)]
     let width_usize = width.get() as usize;
     #[allow(clippy::cast_possible_truncation)]
     let height_usize = height.get() as usize;
 
-    width_usize * height_usize * channel_size.get() as usize
+    width_usize * height_usize
+}
+pub(crate) const fn calc_channel_len_flat(
+    width: NonZeroU32,
+    height: NonZeroU32,
+    channel_size: NonZeroU8,
+) -> usize {
+    calc_channel_len(width, height) * channel_size.get() as usize
 }
 
 impl<T> Drop for UnsafeImageChannel<T> {
