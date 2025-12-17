@@ -1,6 +1,8 @@
 use std::num::{NonZeroU8, NonZeroU32};
 
-use crate::channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel};
+use crate::channel::{
+    ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_image_channel_len,
+};
 
 struct VecFactory;
 
@@ -17,8 +19,8 @@ impl<T: 'static> UnsafeImageChannel<T> {
         let cap = input.capacity();
         let ptr = input.as_ptr();
         assert_eq!(
-            input.len() as u32,
-            width.get() * height.get() * channel_size.get() as u32,
+            input.len(),
+            calc_image_channel_len(width, height, channel_size),
             "Incompatible Buffer-Size"
         );
 
