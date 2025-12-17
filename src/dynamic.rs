@@ -60,6 +60,17 @@ pub enum DynamicImageChannel {
     F32(ImageChannel<DynamicSize<f32>>),
 }
 
+impl DynamicImageChannel {
+    #[must_use]
+    pub fn pixel_elements(&self) -> NonZeroU8 {
+        match self {
+            DynamicImageChannel::U8(x) => x.pixel_elements(),
+            DynamicImageChannel::U16(x) => x.pixel_elements(),
+            DynamicImageChannel::F32(x) => x.pixel_elements(),
+        }
+    }
+}
+
 impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
     for DynamicImage
 {
