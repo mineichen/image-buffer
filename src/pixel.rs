@@ -16,7 +16,9 @@ impl<T: PixelTypePrimitive> RuntimePixelType for DynamicSize<T> {
     type PixelSize = RuntimeSize;
 }
 
-pub trait PixelTypePrimitive: Clone + PartialEq + Send + Sync + 'static {
+pub trait PixelTypePrimitive:
+    Clone + PartialEq + Send + Sync + 'static + crate::seal::SealedPrimitive
+{
     fn into_runtime_channel(i: ImageChannel<DynamicSize<Self>>) -> DynamicImageChannel;
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
