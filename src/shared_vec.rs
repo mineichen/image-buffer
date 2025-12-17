@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    ImageChannel, PixelTypeTrait,
+    ImageChannel, PixelType,
     channel::{ChannelFactory, ImageChannelVTable, PixelChannels, UnsafeImageChannel},
 };
 
@@ -73,7 +73,7 @@ unsafe extern "C" fn clone_shared_vec<T: 'static, const CHANNELS: usize>(
         height: image.height,
         vtable: image.vtable,
         data: Box::into_raw(Box::new(metadata.clone())).cast(),
-        channel_size: image.channel_size.clone(),
+        channel_size: image.channel_size,
     }
 }
 
@@ -94,7 +94,7 @@ unsafe extern "C" fn make_mut_shared_vec<T: 'static + Clone, const CHANNELS: usi
             slice.to_vec(),
             image.width,
             image.height,
-            image.channel_size.clone(),
+            image.channel_size,
         );
     }
 }
@@ -132,7 +132,7 @@ impl<T: 'static + Clone, const CHANNELS: usize> ChannelFactory<T>
 
 /// Create ImageChannels from a Vec, sharing the underlying storage
 /// Note: T: Clone is required for vtable creation, but clone/drop don't actually need it
-pub fn create_shared_channels<TP: PixelTypeTrait, const CHANNELS: usize>(
+pub fn create_shared_channels<TP: PixelType, const CHANNELS: usize>(
     vec: Vec<TP::Primitive>,
     sizes: [(NonZeroU32, NonZeroU32); CHANNELS],
 ) -> [ImageChannel<TP>; CHANNELS]
