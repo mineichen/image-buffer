@@ -27,6 +27,7 @@
           buildInputs = [
             rust
             pkgs.bashInteractive
+            pkgs.cargo-tarpaulin
           ];
 
           LD_LIBRARY_PATH = "${pkgs.openssl.out}/lib";
@@ -45,13 +46,40 @@
           '';
         };
 
-            apps.miri = {
-              type = "app";
-              program = toString (pkgs.writeShellScript "miri" ''
-                export PATH="${rustNightlyWithMiri}/bin:${pkgs.openssl.out}/bin:$PATH"
-                export LD_LIBRARY_PATH="${pkgs.openssl.out}/lib"
-                exec ${rustNightlyWithMiri}/bin/cargo miri test
-              '');
-            };
+        apps.miri = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "miri" ''
+            export PATH="${rustNightlyWithMiri}/bin:${pkgs.openssl.out}/bin:$PATH"
+            export LD_LIBRARY_PATH="${pkgs.openssl.out}/lib"
+            exec ${rustNightlyWithMiri}/bin/cargo miri test
+          '');
+        };
+
+        apps.coverage = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "coverage" ''
+            set -e
+            
+            # Create coverage directory
+            mkdir -p coverage
+            
+            # Run tests with coverage
+            echo "Running tests with coverage..."
+            ${pkgs.cargo-tarpaulin}/bin/cargo-tarpaulin \
+              --out Html \
+              --out Xml \
+              --output-dir target/coverage \
+              --exclude-files 'tests/*' \
+              --exclude-files 'target/*' \
+              --timeout 120 \
+              --all-features
+            
+            echo ""
+            echo "Coverage report generated in coverage/tarpaulin-report.html"
+            echo "XML report generated in coverage/cobertura.xml"
+            echo ""
+            echo "Open coverage/tarpaulin-report.html in your browser to view the report."
+          '');
+        };
       });
 }

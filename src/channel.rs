@@ -201,12 +201,13 @@ impl<TP: PixelType> TryFrom<DynamicImageChannel> for ImageChannel<TP> {
     }
 }
 
-impl<TP: PixelType> ImageChannel<TP> {
-    pub fn into_runtime(self) -> DynamicImageChannel {
-        let flat_channel: ImageChannel<DynamicSize<TP::Primitive>> = ImageChannel(self.0);
+impl<TP: PixelType> From<ImageChannel<TP>> for DynamicImageChannel {
+    fn from(value: ImageChannel<TP>) -> Self {
+        let flat_channel: ImageChannel<DynamicSize<TP::Primitive>> = ImageChannel(value.0);
         <TP::Primitive as PixelTypePrimitive>::into_runtime_channel(flat_channel)
     }
 }
+
 impl<TP: RuntimePixelType> ImageChannel<TP> {
     /// Create an ImageChannel from an UnsafeImageChannel (used internally)
     pub fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<TP::Primitive>) -> Self {

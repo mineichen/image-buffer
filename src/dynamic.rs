@@ -1,7 +1,7 @@
 use std::{
     fmt::Debug,
     mem::MaybeUninit,
-    num::{NonZeroU8, NonZeroUsize},
+    num::{NonZeroU8, NonZeroU32, NonZeroUsize},
 };
 
 use crate::{Image, ImageChannel, PixelType, pixel::DynamicSize};
@@ -13,6 +13,21 @@ use crate::{Image, ImageChannel, PixelType, pixel::DynamicSize};
 #[derive(Debug, Clone, PartialEq)]
 pub struct DynamicImage {
     channels: Vec<DynamicImageChannel>,
+}
+
+// Deref slice only, to make sure, noone can create a DynamicImage with a empty Vec
+impl std::ops::Deref for DynamicImage {
+    type Target = [DynamicImageChannel];
+
+    fn deref(&self) -> &Self::Target {
+        &self.channels
+    }
+}
+
+impl std::ops::DerefMut for DynamicImage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.channels
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,11 +42,7 @@ impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<
 {
     fn from(value: Image<TPixel, CHANNELS>) -> Self {
         DynamicImage {
-            channels: value
-                .0
-                .into_iter()
-                .map(ImageChannel::into_runtime)
-                .collect(),
+            channels: value.0.into_iter().map(ImageChannel::into).collect(),
         }
     }
 }
@@ -41,11 +52,25 @@ impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<
 pub struct IncompatibleImageError {
     pub image: DynamicImage,
     #[allow(dead_code)]
-    pixel_dimensions: NonZeroU8,
-    #[allow(dead_code)]
-    pixel_kind: &'static str,
-    #[allow(dead_code)]
-    buffer_dimensions: NonZeroUsize,
+    reason: IncompatibleImageErrorReason,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+enum IncompatibleImageErrorReason {
+    Comptime {
+        pixel_dimensions: NonZeroU8,
+        pixel_kind: &'static str,
+        buffer_dimensions: NonZeroUsize,
+    },
+    MixedImageSizes {
+        a: (NonZeroU32, NonZeroU32),
+        b: (NonZeroU32, NonZeroU32),
+    },
+    RequiresMoreChannels {
+        expected: NonZeroU8,
+        actual: NonZeroU8,
+    },
 }
 
 impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
@@ -70,34 +95,61 @@ fn from_image_iter<T: PixelType, const CHANNELS: usize>(
     mut value: impl Iterator<Item = DynamicImageChannel>,
 ) -> Result<Image<T, CHANNELS>, IncompatibleImageError> {
     let mut incompatible_image = Ok(());
+    let mut prev_image_size = None;
 
     let all: [_; CHANNELS] = std::array::from_fn(|i| {
         if incompatible_image.is_ok() {
-            incompatible_image = Err(match value.next() {
-                Some(dynamic) => match ImageChannel::try_from(dynamic) {
-                    Ok(typed) => return MaybeUninit::new(typed),
-                    Err(dynamic) => (i, Some(dynamic)),
+            incompatible_image = Err((
+                i,
+                match value.next() {
+                    Some(dynamic) => match ImageChannel::try_from(dynamic) {
+                        Ok(typed) => {
+                            let b = typed.dimensions();
+                            match prev_image_size {
+                                Some(a) if a != b => (
+                                    Some(typed.into()),
+                                    IncompatibleImageErrorReason::MixedImageSizes { a, b },
+                                ),
+                                _ => {
+                                    prev_image_size = Some(typed.dimensions());
+                                    return MaybeUninit::new(typed);
+                                }
+                            }
+                        }
+                        Err(dynamic) => (
+                            Some(dynamic),
+                            IncompatibleImageErrorReason::Comptime {
+                                pixel_dimensions: T::PIXEL_CHANNELS,
+                                pixel_kind: std::any::type_name::<T>(),
+                                buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
+                            },
+                        ),
+                    },
+                    None => (
+                        None,
+                        IncompatibleImageErrorReason::RequiresMoreChannels {
+                            expected: const { crate::unwrap_usize_to_nonzero_u8(CHANNELS) },
+                            actual: crate::unwrap_usize_to_nonzero_u8(i),
+                        },
+                    ),
                 },
-                None => (i, None),
-            })
+            ))
         }
         MaybeUninit::uninit()
     });
     match incompatible_image {
         Ok(_) => Ok(Image(all.map(|x| unsafe { x.assume_init() }))),
-        Err((initialized_indices, error_image)) => Err(IncompatibleImageError {
+        Err((initialized_indices, (error_image, reason))) => Err(IncompatibleImageError {
             image: DynamicImage {
                 channels: all
                     .into_iter()
                     .take(initialized_indices)
-                    .map(|x| unsafe { x.assume_init() }.into_runtime())
+                    .map(|x| unsafe { x.assume_init() }.into())
                     .chain(error_image)
                     .chain(value)
                     .collect(),
             },
-            pixel_dimensions: T::PIXEL_CHANNELS,
-            pixel_kind: std::any::type_name::<T>(),
-            buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
+            reason,
         }),
     }
 }
