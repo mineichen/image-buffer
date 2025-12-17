@@ -12,6 +12,7 @@ mod arc;
 mod channel;
 mod dynamic;
 mod pixel;
+mod pixel_size;
 mod shared_vec;
 mod vec;
 

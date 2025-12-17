@@ -2,8 +2,8 @@ use std::num::NonZeroU8;
 
 use crate::{
     ImageChannel,
-    channel::{ComptimeSize, PixelSize, RuntimeSize},
     dynamic::DynamicImageChannel,
+    pixel_size::{ComptimeSize, PixelSize, RuntimeSize},
 };
 
 /// Removes all compile time hints, of how many channels a pixel persists
