@@ -11,12 +11,12 @@ use crate::{
 };
 
 /// Internal structure that holds a Vec (as raw parts) and reference counts
-/// This allows multiple ImageChannels to share the same Vec
+/// This allows multiple `ImageChannels` to share the same Vec
 #[repr(C)]
 pub struct SharedVecData<T, const CHANNELS: usize> {
     /// Pointer to the start of the Vec data
     vec: Vec<T>,
-    /// Total number of ImageChannels using this SharedVec (global atomic)
+    /// Total number of `ImageChannels` using this `SharedVec` (global atomic)
     total_refs: AtomicUsize,
     /// Per-slice reference counts (one per slice/channel) - used to detect if mutual borrowing is ok
     slice_refs: [AtomicUsize; CHANNELS],
@@ -36,9 +36,9 @@ impl<T, const CHANNELS: usize> SharedVecData<T, CHANNELS> {
 /// Minimal: only stores what's needed to access the shared data
 #[repr(C)]
 struct SharedVecMetadata<T, const CHANNELS: usize> {
-    /// Pointer to the SharedVecData
+    /// Pointer to the `SharedVecData`
     data_ptr: *mut SharedVecData<T, CHANNELS>,
-    /// Index of this slice (to access the correct slice_refs in SharedVecData)
+    /// Index of this slice (to access the correct `slice_refs` in `SharedVecData`)
     slice_idx: usize,
     /// Start offset in the Vec for this slice
     start: usize,
@@ -103,7 +103,7 @@ pub(crate) extern "C" fn drop_shared_vec<T: 'static, const CHANNELS: usize>(
     image: &mut UnsafeImageChannel<T>,
 ) {
     unsafe {
-        let metadata = Box::from_raw(image.data as *mut SharedVecMetadata<T, CHANNELS>);
+        let metadata = Box::from_raw(image.data.cast::<SharedVecMetadata<T, CHANNELS>>());
         let shared = metadata.data_ptr;
         let slice_idx = metadata.slice_idx;
         let _ = (*shared).slice_refs[slice_idx].fetch_sub(1, Ordering::AcqRel) - 1;
@@ -130,7 +130,7 @@ impl<T: 'static + Clone, const CHANNELS: usize> ChannelFactory<T>
     };
 }
 
-/// Create ImageChannels from a Vec, sharing the underlying storage
+/// Create `ImageChannels` from a Vec, sharing the underlying storage
 /// Note: T: Clone is required for vtable creation, but clone/drop don't actually need it
 pub fn create_shared_channels<TP: PixelType, const CHANNELS: usize>(
     vec: Vec<TP::Primitive>,

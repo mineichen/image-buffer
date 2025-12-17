@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![warn(clippy::pedantic)]
 
 use std::{
     fmt::{self, Debug, Formatter},
@@ -36,7 +37,9 @@ impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
-    /// Panics if the buffer size is not compatible with the width and height
+    /// # Panics
+    /// Panics if the buffer size is not compatible with the width and height.
+    #[must_use]
     pub fn new_vec(mut input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: Clone,
@@ -52,11 +55,11 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             let channel = ImageChannel::<T>::new_vec(input, width, height);
             unsafe {
                 let mut arr = std::mem::MaybeUninit::<[ImageChannel<T>; CHANNELS]>::uninit();
-                std::ptr::write(arr.as_mut_ptr() as *mut ImageChannel<T>, channel);
+                std::ptr::write(arr.as_mut_ptr().cast::<ImageChannel<T>>(), channel);
                 Self(arr.assume_init())
             }
         } else {
-            let ptr = input.as_mut_ptr() as *mut T::Primitive;
+            let ptr = input.as_mut_ptr().cast::<T::Primitive>();
             let len = input.len() * T::PIXEL_CHANNELS.get() as usize;
             let cap = input.capacity() * T::PIXEL_CHANNELS.get() as usize;
             std::mem::forget(input);
@@ -68,28 +71,37 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         }
     }
 
+    #[must_use]
     pub fn into_channels(self) -> [ImageChannel<T>; CHANNELS] {
         self.0
     }
 
     /// Returns the number of pixels in each image channel
-    pub const fn pixels_per_channel(&self) -> usize {
+    #[must_use]
+    pub const fn len_per_channel(&self) -> usize {
         let (width, height) = self.0[0].dimensions();
-        assert!(width.get() <= usize::MAX as u32);
-        assert!(height.get() <= usize::MAX as u32);
+        // u32 always fits in usize, so the cast is safe
+        #[allow(clippy::cast_possible_truncation)]
+        let width_usize = width.get() as usize;
+        #[allow(clippy::cast_possible_truncation)]
+        let height_usize = height.get() as usize;
 
-        width.get() as usize * height.get() as usize
+        width_usize * height_usize
     }
 
+    #[must_use]
     pub fn buffers(&self) -> [&[T]; CHANNELS] {
         std::array::from_fn(|i| self.0[i].buffer())
     }
 
+    /// # Panics
+    /// Panics if there are fewer channels than expected.
     pub fn make_mut(&mut self) -> [&mut [T]; CHANNELS] {
         let mut iter = self.0.iter_mut();
         std::array::from_fn(|_| iter.next().unwrap().make_mut())
     }
 
+    #[must_use]
     pub fn into_vec(mut self) -> Vec<T>
     where
         T: Clone,
@@ -104,7 +116,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             channel.into_vec()
         } else {
             // For multiple channels, concatenate them
-            let mut result = Vec::with_capacity(self.pixels_per_channel() * CHANNELS);
+            let mut result = Vec::with_capacity(self.len_per_channel() * CHANNELS);
             for channel in self.0 {
                 result.extend_from_slice(channel.buffer());
             }
@@ -112,24 +124,28 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         }
     }
 
+    #[must_use]
     pub fn width(&self) -> NonZeroU32 {
         // All channels have the same height (validated at construction)
         // CHANNELS is always > 0
         self.0[0].width()
     }
 
+    #[must_use]
     pub fn height(&self) -> NonZeroU32 {
         // All channels have the same height (validated at construction)
         // CHANNELS is always > 0
         self.0[0].height()
     }
 
+    #[must_use]
     pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
         // All channels have the same height (validated at construction)
         // CHANNELS is always > 0
         self.0[0].dimensions()
     }
 
+    #[must_use]
     pub fn from_interleaved(i: &Image<[T; CHANNELS], 1>) -> Self
     where
         T: PixelTypePrimitive + Copy,
@@ -138,6 +154,9 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         Self::from_flat_interleaved(i.flat_buffer(), (width, height))
     }
 
+    /// # Panics
+    /// Panics if the buffer size is not compatible with the width, height, and channel count.
+    #[must_use]
     pub fn from_flat_interleaved(v: &[T], (width, height): (NonZeroU32, NonZeroU32)) -> Self
     where
         T: Copy,
@@ -177,6 +196,7 @@ impl<T> Image<T, 1>
 where
     T: PixelType,
 {
+    #[must_use]
     pub fn buffer(&self) -> &[T] {
         self.0[0].buffer()
     }
@@ -184,18 +204,18 @@ where
 
 const fn assert_non_zero_channels<const CHANNELS: usize>() -> usize {
     const {
-        if CHANNELS == 0 {
-            panic!("Image must have at least one channel");
-        }
+        assert!(CHANNELS != 0, "Image must have at least one channel");
         CHANNELS
     }
 }
 
 impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNELS], 1> {
+    #[must_use]
     pub fn flat_buffer(&self) -> &[T] {
         self.0[0].flat_buffer()
     }
 
+    #[must_use]
     pub fn from_planar_image<const CHANNELS: usize>(i: &Image<T, CHANNELS>) -> Self
     where
         T: Copy,
@@ -204,6 +224,9 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
         Self::from_planar(i.buffers(), width, height)
     }
 
+    /// # Panics
+    /// Panics if the buffer size is not compatible with the width, height, and channel count.
+    #[must_use]
     pub fn from_planar<const CHANNELS: usize>(
         channels: [&[T]; CHANNELS],
         width: NonZeroU32,
@@ -277,6 +300,7 @@ impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
 
 const fn unwrap_usize_to_nonzero_u8(value: usize) -> NonZeroU8 {
     assert!(value <= 255, "usize must be less than 256");
+    #[allow(clippy::cast_possible_truncation)]
     NonZeroU8::new(value as u8).unwrap()
 }
 

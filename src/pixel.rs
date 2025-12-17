@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Removes all compile time hints, of how many channels a pixel persists
-/// This is primarily used in DynamicImageChannel
+/// This is primarily used in `DynamicImageChannel`
 #[derive(Clone, Copy, Default)]
 pub struct DynamicSize<T: PixelTypePrimitive>(std::marker::PhantomData<T>);
 
@@ -95,9 +95,11 @@ impl<T: PixelTypePrimitive> PixelType for T {
 impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> PixelType for [T; PIXEL_CHANNELS] {
     const PIXEL_CHANNELS: NonZeroU8 = {
         const {
-            if PIXEL_CHANNELS > 255 {
-                panic!("PIXEL_CHANNELS must be less than 256");
-            }
+            assert!(
+                PIXEL_CHANNELS <= 255,
+                "PIXEL_CHANNELS must be less than 256"
+            );
+            #[allow(clippy::cast_possible_truncation)]
             NonZeroU8::new(PIXEL_CHANNELS as u8).unwrap()
         }
     };
