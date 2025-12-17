@@ -87,6 +87,8 @@ where
         unsafe { std::slice::from_raw_parts(self.0.ptr.cast::<TP>(), self.len()) }
     }
 
+    #[must_use]
+    #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.0.calc_len_packed()
     }

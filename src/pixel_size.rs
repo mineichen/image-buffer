@@ -30,4 +30,3 @@ impl PixelSize for RuntimeSize {
         self.0
     }
 }
-

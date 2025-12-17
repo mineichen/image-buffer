@@ -86,6 +86,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         self.0[0].len()
     }
 
+    #[must_use]
     pub const fn len_flat_per_channel(&self) -> usize {
         self.0[0].len_flat()
     }
