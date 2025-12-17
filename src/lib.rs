@@ -4,6 +4,7 @@
 use std::{
     fmt::{self, Debug, Formatter},
     num::{NonZeroU8, NonZeroU32},
+    sync::Arc,
 };
 
 use crate::{channel::calc_pixel_len_flat, pixel::PixelTypePrimitive};
@@ -217,14 +218,22 @@ where
     pub const fn buffer(&self) -> &[T] {
         self.0[0].buffer()
     }
-}
 
-impl<const PIXEL_ELEMENTS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_ELEMENTS], 1> {
     #[must_use]
-    pub const fn buffer_flat(&self) -> &[T] {
+    pub const fn buffer_flat(&self) -> &[T::Primitive] {
         self.0[0].buffer_flat()
     }
 
+    pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
+    where
+        T::Primitive: Clone,
+    {
+        let channel = ImageChannel::new_arc(input, width, height);
+        Self([channel])
+    }
+}
+
+impl<const PIXEL_ELEMENTS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_ELEMENTS], 1> {
     #[must_use]
     pub fn from_planar_image<const CHANNELS: usize>(i: &Image<T, CHANNELS>) -> Self
     where
