@@ -69,6 +69,15 @@ impl DynamicImageChannel {
             DynamicImageChannel::F32(x) => x.pixel_elements(),
         }
     }
+
+    #[must_use]
+    pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
+        match self {
+            DynamicImageChannel::U8(x) => x.dimensions(),
+            DynamicImageChannel::U16(x) => x.dimensions(),
+            DynamicImageChannel::F32(x) => x.dimensions(),
+        }
+    }
 }
 
 impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
@@ -82,7 +91,8 @@ impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<
 }
 
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("IncompatibleImageError: {image:?} {reason:?}")]
 pub struct IncompatibleImageError {
     pub image: DynamicImage,
     #[allow(dead_code)]
