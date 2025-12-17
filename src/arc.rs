@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::channel::{
-    ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_image_channel_len,
+    ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_image_channel_len_flat,
 };
 
 struct ArcFactory;
@@ -23,7 +23,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
         let len = input.len();
         assert_eq!(
             len,
-            calc_image_channel_len(width, height, channel_size),
+            calc_image_channel_len_flat(width, height, channel_size),
             "Incompatible Buffer-Size"
         );
 
@@ -93,7 +93,7 @@ pub(crate) extern "C" fn clone_slice_into_arc_channel<T: Clone>(
     let buffer = unsafe {
         std::slice::from_raw_parts(
             image.ptr,
-            calc_image_channel_len(image.width, image.height, image.channel_size),
+            calc_image_channel_len_flat(image.width, image.height, image.channel_size),
         )
     };
     UnsafeImageChannel::new_arc(

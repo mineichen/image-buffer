@@ -133,12 +133,12 @@ fn from_image_iter<T: PixelType, const CHANNELS: usize>(
                         },
                     ),
                 },
-            ))
+            ));
         }
         MaybeUninit::uninit()
     });
     match incompatible_image {
-        Ok(_) => Ok(Image(all.map(|x| unsafe { x.assume_init() }))),
+        Ok(()) => Ok(Image(all.map(|x| unsafe { x.assume_init() }))),
         Err((initialized_indices, (error_image, reason))) => Err(IncompatibleImageError {
             image: DynamicImage {
                 channels: all
