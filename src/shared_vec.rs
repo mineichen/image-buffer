@@ -7,7 +7,8 @@ use std::{
 
 use crate::{
     ImageChannel, PixelType,
-    channel::{ChannelFactory, ImageChannelVTable, PixelSize, UnsafeImageChannel},
+    channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel},
+    pixel_size::PixelSize,
 };
 
 /// Internal structure that holds a Vec (as raw parts) and reference counts

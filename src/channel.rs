@@ -7,37 +7,8 @@ use std::{
 use crate::{
     dynamic::DynamicImageChannel,
     pixel::{DynamicSize, PixelType, PixelTypePrimitive, RuntimePixelType},
-    unwrap_usize_to_nonzero_u8, vec,
+    pixel_size::PixelSize,
 };
-
-pub trait PixelSize: Sized + PartialEq + Clone + Copy + Send + Sync + 'static {
-    fn get(&self) -> NonZeroU8;
-}
-
-// PIXEL_CHANNELS is usize, because it's also used to define array lengths. Casting in const is not currently possible
-#[derive(Clone, Copy, PartialEq, Default)]
-pub struct ComptimeSize<const PIXEL_CHANNELS: usize>();
-
-impl<const PIXEL_CHANNELS: usize> PixelSize for ComptimeSize<PIXEL_CHANNELS> {
-    fn get(&self) -> NonZeroU8 {
-        const { unwrap_usize_to_nonzero_u8(PIXEL_CHANNELS) }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub struct RuntimeSize(pub(crate) NonZeroU8);
-
-impl Default for RuntimeSize {
-    fn default() -> Self {
-        Self(NonZeroU8::MIN)
-    }
-}
-
-impl PixelSize for RuntimeSize {
-    fn get(&self) -> NonZeroU8 {
-        self.0
-    }
-}
 
 pub struct ImageChannel<TP: RuntimePixelType>(UnsafeImageChannel<TP::Primitive>);
 
@@ -136,7 +107,7 @@ where
     {
         // Get Vec<TP::Primitive> using the base implementation
         let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<TP::Primitive>) =
-            vec::clear_vec_channel::<TP::Primitive>;
+            crate::vec::clear_vec_channel::<TP::Primitive>;
         let mut vec = if std::ptr::fn_addr_eq(self.0.vtable.drop, vec_drop) {
             let size = self.len_flat();
             let result =
@@ -243,7 +214,7 @@ impl<TP: RuntimePixelType> ImageChannel<TP> {
         TP::Primitive: Clone,
     {
         let vec_drop: unsafe extern "C" fn(&mut UnsafeImageChannel<TP::Primitive>) =
-            vec::clear_vec_channel::<TP::Primitive>;
+            crate::vec::clear_vec_channel::<TP::Primitive>;
         // Check if this is a Vec-backed channel
         if std::ptr::fn_addr_eq(self.0.vtable.drop, vec_drop) {
             let size = self.len_flat();
