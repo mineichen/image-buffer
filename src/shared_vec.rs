@@ -175,9 +175,9 @@ where
                 ptr,
                 width,
                 height,
+                TP::ChannelSize::default().get(),
                 vtable,
                 metadata_ptr.cast(),
-                TP::ChannelSize::default().get(),
             ))
         }
     })

@@ -6,7 +6,7 @@ use std::{
     num::{NonZeroU8, NonZeroU32},
 };
 
-use crate::pixel::PixelTypePrimitive;
+use crate::{channel::calc_channel_len_flat, pixel::PixelTypePrimitive};
 
 mod arc;
 mod channel;
@@ -44,10 +44,13 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     where
         T: Clone,
     {
-        assert_ne!(0, const { assert_non_zero_channels::<CHANNELS>() });
         assert_eq!(
             input.len(),
-            width.get() as usize * height.get() as usize * CHANNELS,
+            calc_channel_len_flat(
+                width,
+                height,
+                const { unwrap_usize_to_nonzero_u8(CHANNELS) }
+            ),
             "Incompatible Buffer-Size"
         );
 
@@ -166,8 +169,16 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             return Self::new_vec(v.to_vec(), width, height);
         }
 
-        assert_ne!(0, const { assert_non_zero_channels::<CHANNELS>() });
-        assert_eq!(v.len(), len * CHANNELS);
+        assert_eq!(
+            v.len(),
+            calc_channel_len_flat(
+                width,
+                height,
+                const { unwrap_usize_to_nonzero_u8(CHANNELS) }
+            ),
+            "Incompatible Buffer-Size"
+        );
+
         let mut write_buf_container = vec![std::mem::MaybeUninit::<T>::uninit(); len * CHANNELS];
 
         let mut next_read = 0;
@@ -199,13 +210,6 @@ where
     #[must_use]
     pub fn buffer(&self) -> &[T] {
         self.0[0].buffer()
-    }
-}
-
-const fn assert_non_zero_channels<const CHANNELS: usize>() -> usize {
-    const {
-        assert!(CHANNELS != 0, "Image must have at least one channel");
-        CHANNELS
     }
 }
 
@@ -252,7 +256,24 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
                 }
             };
         }
-        assert_ne!(0, const { assert_non_zero_channels::<CHANNELS>() });
+
+        assert_eq!(
+            {
+                let mut len_iter = channels.iter().map(|c| c.len());
+                let first_len = len_iter.next().unwrap();
+
+                len_iter.fold(first_len, |acc, c| {
+                    assert_eq!(c, first_len, "All channels must have the same length");
+                    acc + c
+                })
+            },
+            calc_channel_len_flat(
+                width,
+                height,
+                const { unwrap_usize_to_nonzero_u8(CHANNELS) }
+            ),
+            "Incompatible Buffer-Size"
+        );
 
         let len = width.get() as usize * height.get() as usize;
         let mut channel_iters = channels.map(|c| c.iter());
@@ -263,7 +284,10 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
 
             for (src, dst) in channel_iters
                 .iter_mut()
-                .map(|c| c.next().unwrap())
+                .map(|c| {
+                    c.next()
+                        .expect("Channels are checked above to have the same length")
+                })
                 .zip(value.iter_mut())
             {
                 dst.write(*src);
