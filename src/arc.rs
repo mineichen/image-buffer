@@ -16,12 +16,12 @@ where
         input: Arc<[T]>,
         width: NonZeroU32,
         height: NonZeroU32,
-        pixel_size: NonZeroU8,
+        pixel_elements: NonZeroU8,
     ) -> Self {
         let len = input.len();
         assert_eq!(
             len,
-            calc_pixel_len_flat(width, height, pixel_size),
+            calc_pixel_len_flat(width, height, pixel_elements),
             "Incompatible Buffer-Size"
         );
 
@@ -32,7 +32,7 @@ where
                 ptr,
                 width,
                 height,
-                pixel_size,
+                pixel_elements,
                 vtable,
                 std::ptr::without_provenance_mut(len),
             )
@@ -69,7 +69,12 @@ impl<T: 'static + Clone> ChannelFactory<T> for ArcFactory {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptr, image.data as usize);
                 Arc::<[T]>::from_raw(ptr)
             });
-            UnsafeImageChannel::new_arc((*arc).clone(), image.width, image.height, image.pixel_size)
+            UnsafeImageChannel::new_arc(
+                (*arc).clone(),
+                image.width,
+                image.height,
+                image.pixel_elements,
+            )
         }
 
         &ImageChannelVTable {
@@ -87,6 +92,6 @@ pub(crate) extern "C" fn clone_slice_into_arc_channel<T: Clone>(
         Arc::from(image.buffer_flat()),
         image.width,
         image.height,
-        image.pixel_size,
+        image.pixel_elements,
     )
 }

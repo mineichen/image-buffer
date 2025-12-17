@@ -3,7 +3,7 @@ use std::num::NonZeroU8;
 use crate::{
     ImageChannel,
     dynamic::DynamicImageChannel,
-    pixel_size::{ComptimeSize, PixelSize, RuntimeSize},
+    pixel_elements::{ComptimeSize, PixelSize, RuntimeSize},
 };
 
 /// Removes all compile time hints, of how many channels a pixel persists
@@ -75,7 +75,7 @@ pub trait RuntimePixelType: Clone + Sized + 'static {
 }
 
 pub trait PixelType: RuntimePixelType + Clone + Sized + 'static {
-    const PIXEL_CHANNELS: NonZeroU8;
+    const ELEMENTS: NonZeroU8;
 }
 
 impl<T: PixelTypePrimitive> RuntimePixelType for T {
@@ -83,24 +83,24 @@ impl<T: PixelTypePrimitive> RuntimePixelType for T {
     type PixelSize = ComptimeSize<1>;
 }
 
-impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> RuntimePixelType for [T; PIXEL_CHANNELS] {
+impl<T: PixelTypePrimitive, const PIXEL_ELEMENTS: usize> RuntimePixelType for [T; PIXEL_ELEMENTS] {
     type Primitive = T;
-    type PixelSize = ComptimeSize<PIXEL_CHANNELS>;
+    type PixelSize = ComptimeSize<PIXEL_ELEMENTS>;
 }
 
 impl<T: PixelTypePrimitive> PixelType for T {
-    const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::MIN;
+    const ELEMENTS: NonZeroU8 = NonZeroU8::MIN;
 }
 
-impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> PixelType for [T; PIXEL_CHANNELS] {
-    const PIXEL_CHANNELS: NonZeroU8 = {
+impl<T: PixelTypePrimitive, const PIXEL_ELEMENTS: usize> PixelType for [T; PIXEL_ELEMENTS] {
+    const ELEMENTS: NonZeroU8 = {
         const {
             assert!(
-                PIXEL_CHANNELS <= 255,
-                "PIXEL_CHANNELS must be less than 256"
+                PIXEL_ELEMENTS <= 255,
+                "PIXEL_ELEMENTS must be less than 256"
             );
             #[allow(clippy::cast_possible_truncation)]
-            NonZeroU8::new(PIXEL_CHANNELS as u8).unwrap()
+            NonZeroU8::new(PIXEL_ELEMENTS as u8).unwrap()
         }
     };
 }
