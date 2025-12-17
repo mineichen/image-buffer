@@ -39,6 +39,22 @@ impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
+    pub fn new_vec_flat(mut input: Vec<T::Primitive>, width: NonZeroU32, height: NonZeroU32) -> Self
+    where
+        T: PixelType,
+    {
+        let pixel_elements = T::ELEMENTS.get() as usize;
+        assert_eq!(input.len() % pixel_elements, 0, "Incompatible Buffer-Size");
+
+        let cap = input.capacity() / pixel_elements;
+        let len = input.len() / pixel_elements;
+        let ptr = input.as_mut_ptr().cast::<T>();
+        std::mem::forget(input);
+        let cast_input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
+
+        Self::new_vec(cast_input, width, height)
+    }
+
     /// # Panics
     /// Panics if the buffer size is not compatible with the width and height.
     #[must_use]
@@ -430,5 +446,20 @@ mod tests {
             to_vec2[..].as_ptr(),
             "Should reuse the buffer if it was created by vec"
         );
+    }
+
+    #[test]
+    fn create_interleaved_from_flat_vec() {
+        let size = 2.try_into().unwrap();
+        let image: Image<[u8; 3], 1> = Image::new_vec(
+            vec![[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]],
+            size,
+            size,
+        );
+        let buffer = image.buffer_flat().to_vec();
+        assert_eq!(buffer.len(), 12);
+        let image_from_flat: Image<[u8; 3], 1> = Image::new_vec_flat(buffer, size, size);
+
+        assert_eq!(image, image_from_flat);
     }
 }
