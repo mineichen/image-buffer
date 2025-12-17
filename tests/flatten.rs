@@ -9,7 +9,5 @@ fn flatten() {
     let image = Image::<[u8; 3], 1>::new_vec(input.clone(), two, two);
     let buffers = image.buffer();
     assert_eq!(buffers, &input);
-    assert_eq!(image.flat_buffer(), (0..12).collect::<Vec<_>>());
+    assert_eq!(image.buffer_flat(), (0..12).collect::<Vec<_>>());
 }
-
-

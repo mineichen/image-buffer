@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     ImageChannel, PixelType,
-    channel::{ChannelFactory, ImageChannelVTable, PixelChannels, UnsafeImageChannel},
+    channel::{ChannelFactory, ImageChannelVTable, PixelSize, UnsafeImageChannel},
 };
 
 /// Internal structure that holds a Vec (as raw parts) and reference counts
@@ -73,7 +73,7 @@ unsafe extern "C" fn clone_shared_vec<T: 'static, const CHANNELS: usize>(
         height: image.height,
         vtable: image.vtable,
         data: Box::into_raw(Box::new(metadata.clone())).cast(),
-        channel_size: image.channel_size,
+        pixel_size: image.pixel_size,
     }
 }
 
@@ -94,7 +94,7 @@ unsafe extern "C" fn make_mut_shared_vec<T: 'static + Clone, const CHANNELS: usi
             slice.to_vec(),
             image.width,
             image.height,
-            image.channel_size,
+            image.pixel_size,
         );
     }
 }
@@ -144,7 +144,7 @@ where
         sizes.iter().fold(0, |acc, i| acc
             + i.0.get() as usize
                 * i.1.get() as usize
-                * TP::ChannelSize::default().get().get() as usize)
+                * TP::PixelSize::default().get().get() as usize)
     );
     // Create SharedVecData
     let mut base = vec.as_ptr();
@@ -156,7 +156,7 @@ where
         let (width, height) = sizes[i];
         let start = width.get() as usize
             * height.get() as usize
-            * TP::ChannelSize::default().get().get() as usize;
+            * TP::PixelSize::default().get().get() as usize;
 
         let metadata = Box::new(SharedVecMetadata::<TP::Primitive, CHANNELS> {
             data_ptr,
@@ -175,7 +175,7 @@ where
                 ptr,
                 width,
                 height,
-                TP::ChannelSize::default().get(),
+                TP::PixelSize::default().get(),
                 vtable,
                 metadata_ptr.cast(),
             ))

@@ -6,7 +6,7 @@ use std::{
     num::{NonZeroU8, NonZeroU32},
 };
 
-use crate::{channel::calc_channel_len_flat, pixel::PixelTypePrimitive};
+use crate::{channel::calc_pixel_len_flat, pixel::PixelTypePrimitive};
 
 mod arc;
 mod channel;
@@ -46,7 +46,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     {
         assert_eq!(
             input.len(),
-            calc_channel_len_flat(
+            calc_pixel_len_flat(
                 width,
                 height,
                 const { unwrap_usize_to_nonzero_u8(CHANNELS) }
@@ -82,19 +82,23 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     /// Returns the number of pixels in each image channel
     #[must_use]
     pub const fn len_per_channel(&self) -> usize {
-        let (width, height) = self.0[0].dimensions();
-        // u32 always fits in usize, so the cast is safe
-        #[allow(clippy::cast_possible_truncation)]
-        let width_usize = width.get() as usize;
-        #[allow(clippy::cast_possible_truncation)]
-        let height_usize = height.get() as usize;
+        self.0[0].len()
+    }
 
-        width_usize * height_usize
+    pub const fn len_flat_per_channel(&self) -> usize {
+        self.0[0].len_flat()
     }
 
     #[must_use]
-    pub fn buffers(&self) -> [&[T]; CHANNELS] {
-        std::array::from_fn(|i| self.0[i].buffer())
+    pub const fn buffers(&self) -> [&[T]; CHANNELS] {
+        let mut uninit = [&[] as &[T]; CHANNELS];
+        let mut i = 0;
+        while i < CHANNELS {
+            uninit[i] = self.0[i].buffer();
+            i += 1;
+        }
+
+        uninit
     }
 
     /// # Panics
@@ -128,21 +132,21 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     }
 
     #[must_use]
-    pub fn width(&self) -> NonZeroU32 {
+    pub const fn width(&self) -> NonZeroU32 {
         // All channels have the same height (validated at construction)
         // CHANNELS is always > 0
         self.0[0].width()
     }
 
     #[must_use]
-    pub fn height(&self) -> NonZeroU32 {
+    pub const fn height(&self) -> NonZeroU32 {
         // All channels have the same height (validated at construction)
         // CHANNELS is always > 0
         self.0[0].height()
     }
 
     #[must_use]
-    pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
+    pub const fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
         // All channels have the same height (validated at construction)
         // CHANNELS is always > 0
         self.0[0].dimensions()
@@ -154,7 +158,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         T: PixelTypePrimitive + Copy,
     {
         let (width, height) = i.dimensions();
-        Self::from_flat_interleaved(i.flat_buffer(), (width, height))
+        Self::from_flat_interleaved(i.buffer_flat(), (width, height))
     }
 
     /// # Panics
@@ -171,7 +175,7 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
 
         assert_eq!(
             v.len(),
-            calc_channel_len_flat(
+            calc_pixel_len_flat(
                 width,
                 height,
                 const { unwrap_usize_to_nonzero_u8(CHANNELS) }
@@ -208,15 +212,15 @@ where
     T: PixelType,
 {
     #[must_use]
-    pub fn buffer(&self) -> &[T] {
+    pub const fn buffer(&self) -> &[T] {
         self.0[0].buffer()
     }
 }
 
 impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNELS], 1> {
     #[must_use]
-    pub fn flat_buffer(&self) -> &[T] {
-        self.0[0].flat_buffer()
+    pub const fn buffer_flat(&self) -> &[T] {
+        self.0[0].buffer_flat()
     }
 
     #[must_use]
@@ -267,7 +271,7 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
                     acc + c
                 })
             },
-            calc_channel_len_flat(
+            calc_pixel_len_flat(
                 width,
                 height,
                 const { unwrap_usize_to_nonzero_u8(CHANNELS) }
@@ -313,14 +317,6 @@ impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
             .finish()
     }
 }
-
-// impl<'a, T: PixelType> From<&'a Image<T, 1>> for (&'a [T], NonZeroU32, NonZeroU32) {
-//     fn from(that: &'a LumaImage<T>) -> Self {
-//         let (width, height) = that.dimensions();
-//         let buf = that.buffer();
-//         (buf, width, height)
-//     }
-// }
 
 const fn unwrap_usize_to_nonzero_u8(value: usize) -> NonZeroU8 {
     assert!(value <= 255, "usize must be less than 256");

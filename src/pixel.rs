@@ -2,7 +2,7 @@ use std::num::NonZeroU8;
 
 use crate::{
     ImageChannel,
-    channel::{ComptimeChannelSize, PixelChannels, RuntimeChannelSize},
+    channel::{ComptimeSize, PixelSize, RuntimeSize},
     dynamic::DynamicImageChannel,
 };
 
@@ -13,7 +13,7 @@ pub struct DynamicSize<T: PixelTypePrimitive>(std::marker::PhantomData<T>);
 
 impl<T: PixelTypePrimitive> RuntimePixelType for DynamicSize<T> {
     type Primitive = T;
-    type ChannelSize = RuntimeChannelSize;
+    type PixelSize = RuntimeSize;
 }
 
 pub trait PixelTypePrimitive: Clone + PartialEq + Send + Sync + 'static {
@@ -71,7 +71,7 @@ impl PixelTypePrimitive for f32 {
 
 pub trait RuntimePixelType: Clone + Sized + 'static {
     type Primitive: PixelTypePrimitive;
-    type ChannelSize: PixelChannels + Default;
+    type PixelSize: PixelSize + Default;
 }
 
 pub trait PixelType: RuntimePixelType + Clone + Sized + 'static {
@@ -80,12 +80,12 @@ pub trait PixelType: RuntimePixelType + Clone + Sized + 'static {
 
 impl<T: PixelTypePrimitive> RuntimePixelType for T {
     type Primitive = T;
-    type ChannelSize = ComptimeChannelSize<1>;
+    type PixelSize = ComptimeSize<1>;
 }
 
 impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> RuntimePixelType for [T; PIXEL_CHANNELS] {
     type Primitive = T;
-    type ChannelSize = ComptimeChannelSize<PIXEL_CHANNELS>;
+    type PixelSize = ComptimeSize<PIXEL_CHANNELS>;
 }
 
 impl<T: PixelTypePrimitive> PixelType for T {
