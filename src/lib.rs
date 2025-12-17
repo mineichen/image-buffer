@@ -12,12 +12,12 @@ mod arc;
 mod channel;
 mod dynamic;
 mod pixel;
-mod pixel_size;
+mod pixel_elements;
 mod shared_vec;
 mod vec;
 
 pub use channel::ImageChannel;
-pub use dynamic::{DynamicImage, IncompatibleImageError};
+pub use dynamic::{DynamicImage, DynamicImageChannel, IncompatibleImageError};
 pub use pixel::PixelType;
 
 pub type LumaImage<T> = Image<T, 1>;
@@ -64,8 +64,8 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             }
         } else {
             let ptr = input.as_mut_ptr().cast::<T::Primitive>();
-            let len = input.len() * T::PIXEL_CHANNELS.get() as usize;
-            let cap = input.capacity() * T::PIXEL_CHANNELS.get() as usize;
+            let len = input.len() * T::ELEMENTS.get() as usize;
+            let cap = input.capacity() * T::ELEMENTS.get() as usize;
             std::mem::forget(input);
             let cast_input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
             Self(shared_vec::create_shared_channels(
@@ -219,7 +219,7 @@ where
     }
 }
 
-impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNELS], 1> {
+impl<const PIXEL_ELEMENTS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_ELEMENTS], 1> {
     #[must_use]
     pub const fn buffer_flat(&self) -> &[T] {
         self.0[0].buffer_flat()
@@ -249,13 +249,13 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
             let len = width.get() as usize * height.get() as usize;
             let mut data_vec = Vec::with_capacity(len);
             for &val in channels[0] {
-                data_vec.push([val; PIXEL_CHANNELS]);
+                data_vec.push([val; PIXEL_ELEMENTS]);
             }
             let channel = ImageChannel::new_vec(data_vec, width, height);
 
             return {
                 let mut arr =
-                    std::mem::MaybeUninit::<[ImageChannel<[T; PIXEL_CHANNELS]>; 1]>::uninit();
+                    std::mem::MaybeUninit::<[ImageChannel<[T; PIXEL_ELEMENTS]>; 1]>::uninit();
                 unsafe {
                     std::ptr::write(arr.as_mut_ptr().cast(), channel);
                     Self(arr.assume_init())
@@ -284,9 +284,9 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
         let len = width.get() as usize * height.get() as usize;
         let mut channel_iters = channels.map(|c| c.iter());
 
-        let mut data_vec = vec![std::mem::MaybeUninit::<[T; PIXEL_CHANNELS]>::uninit(); len];
+        let mut data_vec = vec![std::mem::MaybeUninit::<[T; PIXEL_ELEMENTS]>::uninit(); len];
         for dst in &mut data_vec {
-            let mut value = [std::mem::MaybeUninit::<T>::uninit(); PIXEL_CHANNELS];
+            let mut value = [std::mem::MaybeUninit::<T>::uninit(); PIXEL_ELEMENTS];
 
             for (src, dst) in channel_iters
                 .iter_mut()
@@ -301,7 +301,7 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
 
             dst.write(value.map(|x| unsafe { x.assume_init() }));
         }
-        let data_vec_init: Vec<[T; PIXEL_CHANNELS]> = unsafe { std::mem::transmute(data_vec) };
+        let data_vec_init: Vec<[T; PIXEL_ELEMENTS]> = unsafe { std::mem::transmute(data_vec) };
         let data = std::sync::Arc::from(data_vec_init);
 
         let image = ImageChannel::new_arc(data, width, height);

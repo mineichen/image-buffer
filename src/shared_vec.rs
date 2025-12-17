@@ -8,7 +8,7 @@ use std::{
 use crate::{
     ImageChannel, PixelType,
     channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel},
-    pixel_size::PixelSize,
+    pixel_elements::PixelSize,
 };
 
 /// Internal structure that holds a Vec (as raw parts) and reference counts
@@ -74,7 +74,7 @@ unsafe extern "C" fn clone_shared_vec<T: 'static, const CHANNELS: usize>(
         height: image.height,
         vtable: image.vtable,
         data: Box::into_raw(Box::new(metadata.clone())).cast(),
-        pixel_size: image.pixel_size,
+        pixel_elements: image.pixel_elements,
     }
 }
 
@@ -95,7 +95,7 @@ unsafe extern "C" fn make_mut_shared_vec<T: 'static + Clone, const CHANNELS: usi
             slice.to_vec(),
             image.width,
             image.height,
-            image.pixel_size,
+            image.pixel_elements,
         );
     }
 }

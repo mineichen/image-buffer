@@ -7,7 +7,7 @@ use std::{
 use crate::{
     dynamic::DynamicImageChannel,
     pixel::{DynamicSize, PixelType, PixelTypePrimitive, RuntimePixelType},
-    pixel_size::PixelSize,
+    pixel_elements::PixelSize,
 };
 
 pub struct ImageChannel<TP: RuntimePixelType>(UnsafeImageChannel<TP::Primitive>);
@@ -26,7 +26,7 @@ where
     fn eq(&self, other: &Self) -> bool {
         self.0.width == other.0.width
             && self.0.height == other.0.height
-            && self.0.pixel_size == other.0.pixel_size
+            && self.0.pixel_elements == other.0.pixel_elements
             && self.buffer_flat() == other.buffer_flat()
     }
 }
@@ -51,8 +51,8 @@ where
         let cap = input.capacity();
 
         let ptr = input.as_mut_ptr().cast::<TP::Primitive>();
-        let len = len * TP::PIXEL_CHANNELS.get() as usize;
-        let cap = cap * TP::PIXEL_CHANNELS.get() as usize;
+        let len = len * TP::ELEMENTS.get() as usize;
+        let cap = cap * TP::ELEMENTS.get() as usize;
         std::mem::forget(input);
 
         // Safety: TP::Primitive is expected to be an aligned fraction of TP
@@ -69,7 +69,7 @@ where
     pub fn new_arc(input: Arc<[TP]>, width: NonZeroU32, height: NonZeroU32) -> Self {
         let len = input.len();
         let ptr = Arc::into_raw(input).cast::<TP::Primitive>();
-        let len = len * TP::PIXEL_CHANNELS.get() as usize;
+        let len = len * TP::ELEMENTS.get() as usize;
 
         // Safety: TP::Primitive is expected to be an aligned fraction of TP
         let cast_input = unsafe { Arc::from_raw(std::ptr::slice_from_raw_parts(ptr, len)) };
@@ -97,7 +97,7 @@ where
         unsafe {
             (self.0.vtable.make_mut)(&mut self.0);
             let len = self.len_flat();
-            let len = len / TP::PIXEL_CHANNELS.get() as usize;
+            let len = len / TP::ELEMENTS.get() as usize;
             std::slice::from_raw_parts_mut(self.0.ptr as *mut TP, len)
         }
     }
@@ -124,8 +124,8 @@ where
 
         // Cast Vec<TP::Primitive> back to Vec<TP>
         let ptr = vec.as_mut_ptr().cast::<TP>();
-        let len = vec.len() / TP::PIXEL_CHANNELS.get() as usize;
-        let cap = vec.capacity() / TP::PIXEL_CHANNELS.get() as usize;
+        let len = vec.len() / TP::ELEMENTS.get() as usize;
+        let cap = vec.capacity() / TP::ELEMENTS.get() as usize;
         std::mem::forget(vec);
 
         unsafe { Vec::from_raw_parts(ptr, len, cap) }
@@ -166,7 +166,7 @@ impl<TP: PixelType> TryFrom<DynamicImageChannel> for ImageChannel<TP> {
     fn try_from(value: DynamicImageChannel) -> Result<Self, Self::Error> {
         let typed = <TP::Primitive as PixelTypePrimitive>::try_from_dynamic_image(value)?;
 
-        if typed.0.pixel_size == TP::PIXEL_CHANNELS {
+        if typed.0.pixel_elements == TP::ELEMENTS {
             Ok(ImageChannel(typed.0))
         } else {
             Err(<TP::Primitive as PixelTypePrimitive>::into_runtime_channel(
@@ -243,6 +243,11 @@ impl<TP: RuntimePixelType> ImageChannel<TP> {
     pub const fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
         (self.0.width, self.0.height)
     }
+
+    #[must_use]
+    pub const fn pixel_elements(&self) -> NonZeroU8 {
+        self.0.pixel_elements
+    }
 }
 
 impl<TP: RuntimePixelType> Debug for ImageChannel<TP>
@@ -254,7 +259,7 @@ where
             .field("width", &self.0.width)
             .field("height", &self.0.height)
             .field("pixel", &std::any::type_name::<TP::Primitive>())
-            .field("pixel_channels", &self.0.pixel_size.get())
+            .field("pixel_elements", &self.0.pixel_elements.get())
             .finish()
     }
 }
@@ -284,7 +289,7 @@ pub struct UnsafeImageChannel<T: 'static> {
     pub vtable: &'static ImageChannelVTable<T>,
     // Has to be cleaned up by clear proc too
     pub data: *mut (),
-    pub pixel_size: NonZeroU8,
+    pub pixel_elements: NonZeroU8,
 }
 
 impl<T: 'static> UnsafeImageChannel<T> {
@@ -298,7 +303,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
         ptr: *const T,
         width: NonZeroU32,
         height: NonZeroU32,
-        pixel_size: NonZeroU8,
+        pixel_elements: NonZeroU8,
         vtable: &'static ImageChannelVTable<T>,
         data: *mut (),
     ) -> Self {
@@ -308,7 +313,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
             height,
             vtable,
             data,
-            pixel_size,
+            pixel_elements,
         }
     }
 
@@ -320,7 +325,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
         calc_pixel_len_packed(self.width, self.height)
     }
     pub(crate) const fn calc_len_flat(&self) -> usize {
-        calc_pixel_len_flat(self.width, self.height, self.pixel_size)
+        calc_pixel_len_flat(self.width, self.height, self.pixel_elements)
     }
 }
 
@@ -335,9 +340,9 @@ const fn calc_pixel_len_packed(width: NonZeroU32, height: NonZeroU32) -> usize {
 pub(crate) const fn calc_pixel_len_flat(
     width: NonZeroU32,
     height: NonZeroU32,
-    pixel_size: NonZeroU8,
+    pixel_elements: NonZeroU8,
 ) -> usize {
-    calc_pixel_len_packed(width, height) * pixel_size.get() as usize
+    calc_pixel_len_packed(width, height) * pixel_elements.get() as usize
 }
 
 impl<T> Drop for UnsafeImageChannel<T> {

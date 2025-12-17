@@ -9,7 +9,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
         input: Vec<T>,
         width: NonZeroU32,
         height: NonZeroU32,
-        pixel_size: NonZeroU8,
+        pixel_elements: NonZeroU8,
     ) -> Self
     where
         T: Clone,
@@ -19,7 +19,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
 
         assert_eq!(
             input.len(),
-            calc_pixel_len_flat(width, height, pixel_size),
+            calc_pixel_len_flat(width, height, pixel_elements),
             "Incompatible Buffer-Size"
         );
         std::mem::forget(input);
@@ -29,7 +29,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
                 ptr,
                 width,
                 height,
-                pixel_size,
+                pixel_elements,
                 vtable,
                 std::ptr::without_provenance_mut(cap),
             )
@@ -54,7 +54,7 @@ pub(crate) extern "C" fn clear_vec_channel<T>(image: &mut UnsafeImageChannel<T>)
     unsafe {
         Vec::from_raw_parts(
             image.ptr.cast_mut(),
-            (image.width.get() * image.height.get()) as usize * image.pixel_size.get() as usize,
+            (image.width.get() * image.height.get()) as usize * image.pixel_elements.get() as usize,
             image.data as usize,
         )
     };

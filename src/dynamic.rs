@@ -15,12 +15,35 @@ pub struct DynamicImage {
     channels: Vec<DynamicImageChannel>,
 }
 
+impl DynamicImage {
+    /// `DynamicImage` always has at least one channel, so this never panics
+    #[must_use]
+    pub fn first(&self) -> &DynamicImageChannel {
+        &self.channels[0]
+    }
+
+    /// `DynamicImage` always has at least one channel, so this never panics
+    #[must_use]
+    pub fn last(&self) -> &DynamicImageChannel {
+        &self.channels[self.len() - 1]
+    }
+}
+
 // Deref slice only, to make sure, noone can create a DynamicImage with a empty Vec
 impl std::ops::Deref for DynamicImage {
     type Target = [DynamicImageChannel];
 
     fn deref(&self) -> &Self::Target {
         &self.channels
+    }
+}
+
+impl IntoIterator for DynamicImage {
+    type Item = DynamicImageChannel;
+    type IntoIter = std::vec::IntoIter<DynamicImageChannel>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.channels.into_iter()
     }
 }
 
@@ -119,7 +142,7 @@ fn from_image_iter<T: PixelType, const CHANNELS: usize>(
                         Err(dynamic) => (
                             Some(dynamic),
                             IncompatibleImageErrorReason::Comptime {
-                                pixel_dimensions: T::PIXEL_CHANNELS,
+                                pixel_dimensions: T::ELEMENTS,
                                 pixel_kind: std::any::type_name::<T>(),
                                 buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
                             },
