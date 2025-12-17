@@ -4,9 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::channel::{
-    ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_channel_len_flat,
-};
+use crate::channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_pixel_len_flat};
 
 struct ArcFactory;
 
@@ -18,12 +16,12 @@ where
         input: Arc<[T]>,
         width: NonZeroU32,
         height: NonZeroU32,
-        channel_size: NonZeroU8,
+        pixel_size: NonZeroU8,
     ) -> Self {
         let len = input.len();
         assert_eq!(
             len,
-            calc_channel_len_flat(width, height, channel_size),
+            calc_pixel_len_flat(width, height, pixel_size),
             "Incompatible Buffer-Size"
         );
 
@@ -34,7 +32,7 @@ where
                 ptr,
                 width,
                 height,
-                channel_size,
+                pixel_size,
                 vtable,
                 std::ptr::without_provenance_mut(len),
             )
@@ -71,12 +69,7 @@ impl<T: 'static + Clone> ChannelFactory<T> for ArcFactory {
                 let ptr = std::ptr::slice_from_raw_parts(image.ptr, image.data as usize);
                 Arc::<[T]>::from_raw(ptr)
             });
-            UnsafeImageChannel::new_arc(
-                (*arc).clone(),
-                image.width,
-                image.height,
-                image.channel_size,
-            )
+            UnsafeImageChannel::new_arc((*arc).clone(), image.width, image.height, image.pixel_size)
         }
 
         &ImageChannelVTable {
@@ -90,16 +83,10 @@ impl<T: 'static + Clone> ChannelFactory<T> for ArcFactory {
 pub(crate) extern "C" fn clone_slice_into_arc_channel<T: Clone>(
     image: &UnsafeImageChannel<T>,
 ) -> UnsafeImageChannel<T> {
-    let buffer = unsafe {
-        std::slice::from_raw_parts(
-            image.ptr,
-            calc_channel_len_flat(image.width, image.height, image.channel_size),
-        )
-    };
     UnsafeImageChannel::new_arc(
-        Arc::from(buffer),
+        Arc::from(image.buffer_flat()),
         image.width,
         image.height,
-        image.channel_size,
+        image.pixel_size,
     )
 }

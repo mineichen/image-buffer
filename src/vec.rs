@@ -1,8 +1,6 @@
 use std::num::{NonZeroU8, NonZeroU32};
 
-use crate::channel::{
-    ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_channel_len_flat,
-};
+use crate::channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel, calc_pixel_len_flat};
 
 struct VecFactory;
 
@@ -11,7 +9,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
         input: Vec<T>,
         width: NonZeroU32,
         height: NonZeroU32,
-        channel_size: NonZeroU8,
+        pixel_size: NonZeroU8,
     ) -> Self
     where
         T: Clone,
@@ -21,7 +19,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
 
         assert_eq!(
             input.len(),
-            calc_channel_len_flat(width, height, channel_size),
+            calc_pixel_len_flat(width, height, pixel_size),
             "Incompatible Buffer-Size"
         );
         std::mem::forget(input);
@@ -31,7 +29,7 @@ impl<T: 'static> UnsafeImageChannel<T> {
                 ptr,
                 width,
                 height,
-                channel_size,
+                pixel_size,
                 vtable,
                 std::ptr::without_provenance_mut(cap),
             )
@@ -56,7 +54,7 @@ pub(crate) extern "C" fn clear_vec_channel<T>(image: &mut UnsafeImageChannel<T>)
     unsafe {
         Vec::from_raw_parts(
             image.ptr.cast_mut(),
-            (image.width.get() * image.height.get()) as usize * image.channel_size.get() as usize,
+            (image.width.get() * image.height.get()) as usize * image.pixel_size.get() as usize,
             image.data as usize,
         )
     };
