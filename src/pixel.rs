@@ -8,18 +8,12 @@ use crate::{
 
 /// Removes all compile time hints, of how many channels a pixel persists
 /// This is primarily used in DynamicImageChannel
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct DynamicSize<T: PixelTypePrimitive>(std::marker::PhantomData<T>);
 
 impl<T: PixelTypePrimitive> RuntimePixelType for DynamicSize<T> {
     type Primitive = T;
     type ChannelSize = RuntimeChannelSize;
-}
-
-impl<T: PixelTypePrimitive> Default for DynamicSize<T> {
-    fn default() -> Self {
-        Self(std::marker::PhantomData)
-    }
 }
 
 pub trait PixelTypePrimitive: Clone + PartialEq + Send + Sync + 'static {

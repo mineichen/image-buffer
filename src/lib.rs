@@ -36,6 +36,7 @@ impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
+    /// Panics if the buffer size is not compatible with the width and height
     pub fn new_vec(mut input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: Clone,
@@ -223,10 +224,7 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
                 let mut arr =
                     std::mem::MaybeUninit::<[ImageChannel<[T; PIXEL_CHANNELS]>; 1]>::uninit();
                 unsafe {
-                    std::ptr::write(
-                        arr.as_mut_ptr() as *mut ImageChannel<[T; PIXEL_CHANNELS]>,
-                        channel,
-                    );
+                    std::ptr::write(arr.as_mut_ptr().cast(), channel);
                     Self(arr.assume_init())
                 }
             };
@@ -237,7 +235,7 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
         let mut channel_iters = channels.map(|c| c.iter());
 
         let mut data_vec = vec![std::mem::MaybeUninit::<[T; PIXEL_CHANNELS]>::uninit(); len];
-        for dst in data_vec.iter_mut() {
+        for dst in &mut data_vec {
             let mut value = [std::mem::MaybeUninit::<T>::uninit(); PIXEL_CHANNELS];
 
             for (src, dst) in channel_iters
@@ -278,9 +276,7 @@ impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
 // }
 
 const fn unwrap_usize_to_nonzero_u8(value: usize) -> NonZeroU8 {
-    if value > 255 {
-        panic!("usize must be less than 256");
-    }
+    assert!(value <= 255, "usize must be less than 256");
     NonZeroU8::new(value as u8).unwrap()
 }
 
