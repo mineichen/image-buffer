@@ -202,6 +202,17 @@ impl<TP: RuntimePixelType> ImageChannel<TP> {
         unsafe { std::slice::from_raw_parts(self.0.ptr, len) }
     }
 
+    #[must_use]
+    pub const fn buffer_flat_bytes(&self) -> &[u8] {
+        let len = self.len_flat();
+        unsafe {
+            std::slice::from_raw_parts(
+                self.0.ptr.cast(),
+                len * std::mem::size_of::<TP::Primitive>(),
+            )
+        }
+    }
+
     pub fn primitive_make_mut(&mut self) -> &mut [TP::Primitive] {
         unsafe {
             (self.0.vtable.make_mut)(&mut self.0);
@@ -498,5 +509,11 @@ mod tests {
         image.primitive_make_mut()[0] = TP::Primitive::default();
 
         assert_eq!(image, clone);
+    }
+
+    #[test]
+    fn miri_test_buffer_flat_bytes() {
+        let image = ImageChannel::new_vec(vec![42u16], NonZeroU32::MIN, NonZeroU32::MIN);
+        assert_eq!(image.buffer_flat_bytes(), &[42u8, 0u8]);
     }
 }
