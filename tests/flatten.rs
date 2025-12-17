@@ -13,9 +13,10 @@ fn test_flatten() {
 }
 
 // #[test]
-// fn test_miri_cast() {
-//     let x: &[u8] = &[0, 1, 2];
-//     let y: &[[u8; 3]] = unsafe { std::slice::from_raw_parts(x.as_ptr() as *const [u8; 3], 1) };
-//     dbg!(y);
-//     assert_eq!(y[0][2], 2);
+// fn test_comptime_error() {
+//     let x = Image::<u8, 0>::new_vec(
+//         vec![0u8],
+//         NonZeroU32::new(1).unwrap(),
+//         NonZeroU32::new(1).unwrap(),
+//     );
 // }

@@ -5,7 +5,7 @@ use std::{
     num::NonZeroU32,
 };
 
-use pixel::PixelTypeTrait;
+use crate::pixel::PixelTypePrimitive;
 
 mod arc;
 mod channel;
@@ -15,10 +15,8 @@ mod shared_vec;
 mod vec;
 
 pub use channel::ImageChannel;
-//pub use dynamic::{DynamicImage, IncompatibleImageError};
-
-use crate::pixel::PixelTypePrimitive;
-//pub use pixel::PixelType;
+pub use dynamic::{DynamicImage, IncompatibleImageError};
+pub use pixel::PixelType;
 
 pub type LumaImage<T> = Image<T, 1>;
 pub type RgbImageInterleaved<T> = Image<[T; 3], 1>;
@@ -28,21 +26,21 @@ pub type RgbaImagePlanar<T> = Image<T, 4>;
 
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct Image<T: PixelTypeTrait, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
+pub struct Image<T: PixelType, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
 
-impl<T: PixelTypeTrait, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
+impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
     fn eq(&self, other: &Self) -> bool {
         self.0.iter().zip(other.0.iter()).all(|(a, b)| a == b)
     }
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<const CHANNELS: usize, T: PixelTypeTrait> Image<T, CHANNELS> {
+impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     pub fn new_vec(mut input: Vec<T>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: Clone,
     {
-        assert_non_zero_channels::<CHANNELS>();
+        assert_ne!(0, const { assert_non_zero_channels::<CHANNELS>() });
         assert_eq!(
             input.len(),
             width.get() as usize * height.get() as usize * CHANNELS,
@@ -157,7 +155,7 @@ impl<const CHANNELS: usize, T: PixelTypeTrait> Image<T, CHANNELS> {
             return Self::new_vec(v.to_vec(), width, height);
         }
 
-        assert_non_zero_channels::<CHANNELS>();
+        assert_ne!(0, const { assert_non_zero_channels::<CHANNELS>() });
         assert_eq!(v.len(), len * CHANNELS);
         let mut write_buf_container = vec![std::mem::MaybeUninit::<T>::uninit(); len * CHANNELS];
 
@@ -185,19 +183,20 @@ impl<const CHANNELS: usize, T: PixelTypeTrait> Image<T, CHANNELS> {
 
 impl<T> Image<T, 1>
 where
-    T: PixelTypeTrait,
+    T: PixelType,
 {
     pub fn buffer(&self) -> &[T] {
         self.0[0].buffer()
     }
 }
 
-fn assert_non_zero_channels<const CHANNELS: usize>() {
-    let _ = const {
+const fn assert_non_zero_channels<const CHANNELS: usize>() -> usize {
+    const {
         if CHANNELS == 0 {
             panic!("Image must have at least one channel");
         }
-    };
+        CHANNELS
+    }
 }
 
 impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNELS], 1> {
@@ -241,7 +240,7 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
                 }
             };
         }
-        assert_non_zero_channels::<CHANNELS>();
+        assert_ne!(0, const { assert_non_zero_channels::<CHANNELS>() });
 
         let len = width.get() as usize * height.get() as usize;
         let mut channel_iters = channels.map(|c| c.iter());
@@ -268,7 +267,7 @@ impl<const PIXEL_CHANNELS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_CHANNEL
     }
 }
 
-impl<T: PixelTypeTrait, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
+impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Image")
             .field("width", &self.width())

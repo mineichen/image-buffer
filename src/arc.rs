@@ -75,7 +75,7 @@ impl<T: 'static + Clone> ChannelFactory<T> for ArcFactory {
                 (*arc).clone(),
                 image.width,
                 image.height,
-                image.channel_size.clone(),
+                image.channel_size,
             )
         }
 

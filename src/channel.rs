@@ -5,7 +5,8 @@ use std::{
 };
 
 use crate::{
-    pixel::{FlatPixelType, PixelTypePrimitive, PixelTypeTrait, RuntimePixelTypeTrait},
+    dynamic::DynamicImageChannel,
+    pixel::{DynamicSize, PixelType, PixelTypePrimitive, RuntimePixelType},
     vec,
 };
 
@@ -16,12 +17,6 @@ pub trait PixelChannels: Sized + PartialEq + Clone + Copy + Send + Sync + 'stati
 // PIXEL_CHANNELS is usize, because it's also used to define array lengths. Casting in const is not currently possible
 #[derive(Clone, Copy, PartialEq, Default)]
 pub struct ComptimeChannelSize<const PIXEL_CHANNELS: usize>();
-
-impl<const PIXEL_CHANNELS: usize> ComptimeChannelSize<PIXEL_CHANNELS> {
-    pub const fn get_pixel_channels_const(&self) -> NonZeroU8 {
-        NonZeroU8::new(PIXEL_CHANNELS as u8).unwrap()
-    }
-}
 
 impl<const PIXEL_CHANNELS: usize> PixelChannels for ComptimeChannelSize<PIXEL_CHANNELS> {
     fn get(&self) -> NonZeroU8 {
@@ -49,15 +44,15 @@ impl PixelChannels for RuntimeChannelSize {
     }
 }
 
-pub struct ImageChannel<TP: RuntimePixelTypeTrait>(UnsafeImageChannel<TP::Primitive>);
+pub struct ImageChannel<TP: RuntimePixelType>(UnsafeImageChannel<TP::Primitive>);
 
-impl<TP: RuntimePixelTypeTrait> Clone for ImageChannel<TP> {
+impl<TP: RuntimePixelType> Clone for ImageChannel<TP> {
     fn clone(&self) -> Self {
         Self(unsafe { (self.0.vtable.clone)(&self.0) })
     }
 }
 
-impl<TP: RuntimePixelTypeTrait> PartialEq for ImageChannel<TP>
+impl<TP: RuntimePixelType> PartialEq for ImageChannel<TP>
 where
     TP::Primitive: std::cmp::PartialEq,
 {
@@ -69,7 +64,7 @@ where
     }
 }
 
-impl<TP: PixelTypeTrait> ImageChannel<TP>
+impl<TP: PixelType> ImageChannel<TP>
 where
     TP: Clone,
     TP::Primitive: Clone,
@@ -190,32 +185,29 @@ where
     }
 }
 
-impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
-    pub fn into_runtime(self) -> ImageChannel<FlatPixelType<TP::Primitive>> {
-        ImageChannel(self.0)
-    }
+impl<TP: PixelType> TryFrom<DynamicImageChannel> for ImageChannel<TP> {
+    type Error = DynamicImageChannel;
 
-    /// Convert from RuntimePixelTypeWrapper back to the primitive type
-    pub(crate) fn from_runtime_wrapper<Prim: PixelTypePrimitive>(
-        wrapper: ImageChannel<FlatPixelType<Prim>>,
-    ) -> ImageChannel<Prim> {
-        ImageChannel(wrapper.0)
-    }
+    fn try_from(value: DynamicImageChannel) -> Result<Self, Self::Error> {
+        let typed = <TP::Primitive as PixelTypePrimitive>::try_from_dynamic_image(value)?;
 
-    pub fn try_into_comptime<TPNew: PixelTypeTrait>(self) -> Option<ImageChannel<TPNew>>
-    where
-        TPNew: PixelTypeTrait<Primitive = TP::Primitive>,
-    {
-        if self.0.channel_size == TPNew::PIXEL_CHANNELS
-            && std::any::TypeId::of::<TP::Primitive>() == std::any::TypeId::of::<TPNew::Primitive>()
-        {
-            Some(ImageChannel(self.0))
+        if typed.0.channel_size == TP::PIXEL_CHANNELS {
+            Ok(ImageChannel(typed.0))
         } else {
-            None
+            Err(<TP::Primitive as PixelTypePrimitive>::into_runtime_channel(
+                typed,
+            ))
         }
     }
 }
-impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
+
+impl<TP: PixelType> ImageChannel<TP> {
+    pub fn into_runtime(self) -> DynamicImageChannel {
+        let flat_channel: ImageChannel<DynamicSize<TP::Primitive>> = ImageChannel(self.0);
+        <TP::Primitive as PixelTypePrimitive>::into_runtime_channel(flat_channel)
+    }
+}
+impl<TP: RuntimePixelType> ImageChannel<TP> {
     /// Create an ImageChannel from an UnsafeImageChannel (used internally)
     pub fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<TP::Primitive>) -> Self {
         Self(unsafe_channel)
@@ -270,7 +262,7 @@ impl<TP: RuntimePixelTypeTrait> ImageChannel<TP> {
     }
 }
 
-impl<TP: RuntimePixelTypeTrait> Debug for ImageChannel<TP>
+impl<TP: RuntimePixelType> Debug for ImageChannel<TP>
 where
     TP::Primitive: std::any::Any,
 {
@@ -284,8 +276,8 @@ where
     }
 }
 
-unsafe impl<TP: RuntimePixelTypeTrait> Send for ImageChannel<TP> where TP::Primitive: Send {}
-unsafe impl<TP: RuntimePixelTypeTrait> Sync for ImageChannel<TP> where TP::Primitive: Sync {}
+unsafe impl<TP: RuntimePixelType> Send for ImageChannel<TP> where TP::Primitive: Send {}
+unsafe impl<TP: RuntimePixelType> Sync for ImageChannel<TP> where TP::Primitive: Sync {}
 
 /// VTable for ImageChannel
 /// Reasons for not using the Bytes crate:
@@ -493,7 +485,7 @@ mod tests {
         ));
     }
 
-    fn test_entire_vtable<TP: RuntimePixelTypeTrait>(mut image: ImageChannel<TP>)
+    fn test_entire_vtable<TP: RuntimePixelType>(mut image: ImageChannel<TP>)
     where
         TP::Primitive: 'static + Default + Eq + Debug,
     {

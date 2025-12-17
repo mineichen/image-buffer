@@ -6,125 +6,105 @@ use crate::{
     dynamic::DynamicImageChannel,
 };
 
-// Wrapper type for runtime channel sizes. Its purpose is to disallow calling channels() on it ()
+/// Removes all compile time hints, of how many channels a pixel persists
+/// This is primarily used in DynamicImageChannel
 #[derive(Clone, Copy)]
-pub struct FlatPixelType<T: PixelTypePrimitive>(std::marker::PhantomData<T>);
+pub struct DynamicSize<T: PixelTypePrimitive>(std::marker::PhantomData<T>);
 
-impl<T: PixelTypePrimitive> RuntimePixelTypeTrait for FlatPixelType<T> {
+impl<T: PixelTypePrimitive> RuntimePixelType for DynamicSize<T> {
     type Primitive = T;
     type ChannelSize = RuntimeChannelSize;
-    const KIND: DynamicPixelKind = T::KIND;
 }
 
-impl<T: PixelTypePrimitive> Default for FlatPixelType<T> {
+impl<T: PixelTypePrimitive> Default for DynamicSize<T> {
     fn default() -> Self {
         Self(std::marker::PhantomData)
     }
 }
 
-pub(crate) trait PixelTypePrimitive: Clone + PartialEq + Send + Sync + 'static {
-    const KIND: DynamicPixelKind;
-    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel;
+pub trait PixelTypePrimitive: Clone + PartialEq + Send + Sync + 'static {
+    fn into_runtime_channel(i: ImageChannel<DynamicSize<Self>>) -> DynamicImageChannel;
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<FlatPixelType<Self>>>;
+    ) -> Result<ImageChannel<DynamicSize<Self>>, DynamicImageChannel>;
 }
 
 impl PixelTypePrimitive for u8 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::U8;
-
-    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel {
-        DynamicImageChannel::U8(i.into_runtime())
+    fn into_runtime_channel(i: ImageChannel<DynamicSize<Self>>) -> DynamicImageChannel {
+        DynamicImageChannel::U8(i)
     }
 
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<FlatPixelType<Self>>> {
+    ) -> Result<ImageChannel<DynamicSize<Self>>, DynamicImageChannel> {
         if let DynamicImageChannel::U8(channel) = channel {
-            Some(channel)
+            Ok(channel)
         } else {
-            None
+            Err(channel)
         }
     }
 }
 
 impl PixelTypePrimitive for u16 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::U16;
-    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel {
-        DynamicImageChannel::U16(i.into_runtime())
+    fn into_runtime_channel(i: ImageChannel<DynamicSize<Self>>) -> DynamicImageChannel {
+        DynamicImageChannel::U16(i)
     }
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<FlatPixelType<Self>>> {
+    ) -> Result<ImageChannel<DynamicSize<Self>>, DynamicImageChannel> {
         if let DynamicImageChannel::U16(channel) = channel {
-            Some(channel)
+            Ok(channel)
         } else {
-            None
+            Err(channel)
         }
     }
 }
 
 impl PixelTypePrimitive for f32 {
-    const KIND: DynamicPixelKind = DynamicPixelKind::F32;
-    fn into_runtime_channel(i: ImageChannel<Self>) -> DynamicImageChannel {
-        DynamicImageChannel::F32(i.into_runtime())
+    fn into_runtime_channel(i: ImageChannel<DynamicSize<Self>>) -> DynamicImageChannel {
+        DynamicImageChannel::F32(i)
     }
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
-    ) -> Option<ImageChannel<FlatPixelType<Self>>> {
+    ) -> Result<ImageChannel<DynamicSize<Self>>, DynamicImageChannel> {
         if let DynamicImageChannel::F32(channel) = channel {
-            Some(channel)
+            Ok(channel)
         } else {
-            None
+            Err(channel)
         }
     }
 }
 
-pub trait RuntimePixelTypeTrait: Clone + Sized + 'static {
+pub trait RuntimePixelType: Clone + Sized + 'static {
     type Primitive: PixelTypePrimitive;
     type ChannelSize: PixelChannels + Default;
-    const KIND: DynamicPixelKind;
 }
 
-pub trait PixelTypeTrait: RuntimePixelTypeTrait + Clone + Sized + 'static {
+pub trait PixelType: RuntimePixelType + Clone + Sized + 'static {
     const PIXEL_CHANNELS: NonZeroU8;
 }
 
-impl<T: PixelTypePrimitive> RuntimePixelTypeTrait for T {
+impl<T: PixelTypePrimitive> RuntimePixelType for T {
     type Primitive = T;
     type ChannelSize = ComptimeChannelSize<1>;
-    const KIND: DynamicPixelKind = T::KIND;
 }
 
-impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> RuntimePixelTypeTrait
-    for [T; PIXEL_CHANNELS]
-{
+impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> RuntimePixelType for [T; PIXEL_CHANNELS] {
     type Primitive = T;
     type ChannelSize = ComptimeChannelSize<PIXEL_CHANNELS>;
-    const KIND: DynamicPixelKind = T::KIND;
 }
 
-impl<T: PixelTypePrimitive> PixelTypeTrait for T {
+impl<T: PixelTypePrimitive> PixelType for T {
     const PIXEL_CHANNELS: NonZeroU8 = NonZeroU8::MIN;
 }
 
-impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> PixelTypeTrait for [T; PIXEL_CHANNELS] {
+impl<T: PixelTypePrimitive, const PIXEL_CHANNELS: usize> PixelType for [T; PIXEL_CHANNELS] {
     const PIXEL_CHANNELS: NonZeroU8 = {
-        let _ = const {
+        const {
             if PIXEL_CHANNELS > 255 {
                 panic!("PIXEL_CHANNELS must be less than 256");
             }
-            if PIXEL_CHANNELS == 0 {
-                panic!("PIXEL_CHANNELS must be greater than 0");
-            }
-        };
-        NonZeroU8::new(PIXEL_CHANNELS as u8).unwrap()
+            NonZeroU8::new(PIXEL_CHANNELS as u8).unwrap()
+        }
     };
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
-pub enum DynamicPixelKind {
-    U8,
-    U16,
-    F32,
 }

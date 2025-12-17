@@ -1,66 +1,36 @@
-use std::{fmt::Debug, mem::MaybeUninit, num::NonZeroU8};
-
-use crate::{
-    Image, ImageChannel, PixelTypeTrait,
-    pixel::{DynamicPixelKind, FlatPixelType, PixelTypePrimitive},
+use std::{
+    fmt::Debug,
+    mem::MaybeUninit,
+    num::{NonZeroU8, NonZeroUsize},
 };
 
-/// Trait that extends `Any` with a method to clone the boxed value.
-// trait DynamicImageBackend: std::any::Any + Debug + Send + Sync {
-//     fn boxed_clone(&self) -> Box<dyn DynamicImageBackend>;
-// }
+use crate::{Image, ImageChannel, PixelType, pixel::DynamicSize};
 
-// impl<T: PixelType, const CHANNELS: usize> DynamicImageBackend for Image<T, CHANNELS> {
-//     fn boxed_clone(&self) -> Box<dyn DynamicImageBackend> {
-//         Box::new(self.clone())
-//     }
-// }
-
-/// Image with unknown number of channels and their types
+/// Image with number of channels and their types only known at runtime
 ///
 /// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel U8 and the other f32) in the future
 /// It currently only allows casting back to Image to access the data
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DynamicImage {
     channels: Vec<DynamicImageChannel>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DynamicImageChannel {
-    U8(ImageChannel<FlatPixelType<u8>>),
-    U16(ImageChannel<FlatPixelType<u16>>),
-    F32(ImageChannel<FlatPixelType<f32>>),
+    U8(ImageChannel<DynamicSize<u8>>),
+    U16(ImageChannel<DynamicSize<u16>>),
+    F32(ImageChannel<DynamicSize<f32>>),
 }
 
-impl DynamicImage {
-    // pub fn channel_infos(&self) -> impl Iterator<Item = (NonZeroU8, DynamicPixelKind)> {
-    //     (0..self.layout.buffer_dimensions.get())
-    //         .map(|_| (self.layout.pixel_dimensions, self.layout.pixel_kind))
-    // }
-
-    // pub fn buffer_dimensions(&self) -> NonZeroUsize {
-    //     self.layout.buffer_dimensions
-    // }
-}
-
-impl<TPixel: PixelTypeTrait + Send + Sync + Clone, const CHANNELS: usize>
-    From<Image<TPixel, CHANNELS>> for DynamicImage
+impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
+    for DynamicImage
 {
     fn from(value: Image<TPixel, CHANNELS>) -> Self {
         DynamicImage {
             channels: value
                 .0
                 .into_iter()
-                .map(|channel| {
-                    let runtime_channel = channel.into_runtime();
-                    DynamicImageChannel::from(
-                        <TPixel::Primitive as PixelTypePrimitive>::into_runtime_channel(
-                            ImageChannel::<TPixel::Primitive>::from_runtime_wrapper(
-                                runtime_channel,
-                            ),
-                        ),
-                    )
-                })
+                .map(ImageChannel::into_runtime)
                 .collect(),
         }
     }
@@ -68,69 +38,68 @@ impl<TPixel: PixelTypeTrait + Send + Sync + Clone, const CHANNELS: usize>
 
 #[non_exhaustive]
 #[derive(Debug)]
-#[allow(dead_code)]
-pub struct IncompatibleImageError<TInput> {
-    pub image: TInput,
-    expected: ImageLayout<usize>,
+pub struct IncompatibleImageError {
+    pub image: DynamicImage,
+    #[allow(dead_code)]
+    pixel_dimensions: NonZeroU8,
+    #[allow(dead_code)]
+    pixel_kind: &'static str,
+    #[allow(dead_code)]
+    buffer_dimensions: NonZeroUsize,
 }
 
-impl<T: PixelTypeTrait, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
-    type Error = IncompatibleImageError<DynamicImage>;
+impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
+    type Error = IncompatibleImageError;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
-        let mut same_type = value
-            .channels
-            .into_iter()
-            .filter_map(|c| {
-                <T::Primitive as PixelTypePrimitive>::try_from_dynamic_image(c)?
-                    .try_into_comptime::<T>()
-            })
-            .fuse();
-
-        let mut count_ok = 0;
-
-        let all: [_; CHANNELS] = std::array::from_fn(|_| {
-            if let Some(channel) = same_type.next() {
-                count_ok += 1;
-                MaybeUninit::new(channel)
-            } else {
-                MaybeUninit::uninit()
-            }
-        });
-
-        if count_ok != CHANNELS {
-            todo!("Implement cleanup");
-        }
-
-        Ok(Image(all.map(|x| unsafe { x.assume_init() })))
+        from_image_iter(value.channels.into_iter())
     }
 }
 
-/// This is a temporary workaround until VTables are per layer instead of per image
-// impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a DynamicImage>
-//     for &'a Image<T, CHANNELS>
-// {
-//     type Error = IncompatibleImageError<&'a DynamicImage>;
+impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a DynamicImage>
+    for Image<T, CHANNELS>
+{
+    type Error = IncompatibleImageError;
 
-//     fn try_from(value: &'a DynamicImage) -> Result<Self, Self::Error> {
-//         (value.channels.as_ref() as &dyn std::any::Any)
-//             .downcast_ref::<Image<T, CHANNELS>>()
-//             .ok_or(IncompatibleImageError {
-//                 image: value,
-//                 expected: ImageLayout {
-//                     pixel_dimensions: T::PIXEL_CHANNELS,
-//                     pixel_kind: T::KIND,
-//                     buffer_dimensions: CHANNELS,
-//                 },
-//             })
-//     }
-// }
+    fn try_from(value: &'a DynamicImage) -> Result<Self, Self::Error> {
+        from_image_iter(value.clone().channels.into_iter())
+    }
+}
 
-#[derive(Copy, Debug, Clone)]
-struct ImageLayout<T> {
-    pub pixel_dimensions: NonZeroU8,
-    pub pixel_kind: DynamicPixelKind,
-    pub buffer_dimensions: T,
+fn from_image_iter<T: PixelType, const CHANNELS: usize>(
+    mut value: impl Iterator<Item = DynamicImageChannel>,
+) -> Result<Image<T, CHANNELS>, IncompatibleImageError> {
+    let mut incompatible_image = Ok(());
+
+    let all: [_; CHANNELS] = std::array::from_fn(|i| {
+        if incompatible_image.is_ok() {
+            incompatible_image = Err(match value.next() {
+                Some(dynamic) => match ImageChannel::try_from(dynamic) {
+                    Ok(typed) => return MaybeUninit::new(typed),
+                    Err(dynamic) => (i, Some(dynamic)),
+                },
+                None => (i, None),
+            })
+        }
+        MaybeUninit::uninit()
+    });
+    match incompatible_image {
+        Ok(_) => Ok(Image(all.map(|x| unsafe { x.assume_init() }))),
+        Err((initialized_indices, error_image)) => Err(IncompatibleImageError {
+            image: DynamicImage {
+                channels: all
+                    .into_iter()
+                    .take(initialized_indices)
+                    .map(|x| unsafe { x.assume_init() }.into_runtime())
+                    .chain(error_image)
+                    .chain(value)
+                    .collect(),
+            },
+            pixel_dimensions: T::PIXEL_CHANNELS,
+            pixel_kind: std::any::type_name::<T>(),
+            buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -180,24 +149,32 @@ mod tests {
         assert_eq!(luma_back.into_vec(), vec![1u8, 2, 3]);
     }
 
-    // #[test]
-    // fn clone_dynamic_image() {
-    //     let width = NonZeroU32::new(2).unwrap();
-    //     let height = NonZeroU32::new(2).unwrap();
-    //     let luma = LumaImage::<u8>::new_vec(vec![1, 2, 3, 4], width, height);
-    //     let dynamic = DynamicImage::from(luma);
-    //     let cloned = dynamic.clone();
+    #[test]
+    fn clone_dynamic_image() {
+        let width = NonZeroU32::new(2).unwrap();
+        let height = NonZeroU32::new(2).unwrap();
+        let luma = LumaImage::<u8>::new_vec(vec![1, 2, 3, 4], width, height);
+        let dynamic = DynamicImage::from(luma);
+        let cloned = dynamic.clone();
 
-    //     // Verify both can be converted back to the same image
-    //     let luma_back: LumaImage<u8> = dynamic.try_into().unwrap();
-    //     {
-    //         let ref_luma: &Image<u8, 1> = (&cloned).try_into().unwrap();
-    //         assert_eq!(ref_luma.dimensions(), (width, height));
-    //     }
-    //     let luma_cloned: LumaImage<u8> = cloned.try_into().unwrap();
-    //     let vec_back = luma_back.into_vec();
-    //     let vec_cloned = luma_cloned.into_vec();
-    //     assert_eq!(vec_back, vec_cloned);
-    //     assert_eq!(vec_cloned, vec![1, 2, 3, 4]);
-    // }
+        // Verify both can be converted back to the same image
+        let luma_back: LumaImage<u8> = dynamic.try_into().unwrap();
+        {
+            let ref_luma: Image<u8, 1> = (&cloned).try_into().unwrap();
+            assert_eq!(ref_luma.dimensions(), (width, height));
+        }
+        let luma_cloned: LumaImage<u8> = cloned.try_into().unwrap();
+        let vec_back = luma_back.into_vec();
+        let vec_cloned = luma_cloned.into_vec();
+        assert_eq!(vec_back, vec_cloned);
+        assert_eq!(vec_cloned, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn create_from_incompatible_image() {
+        let luma = LumaImage::<u8>::new_vec(vec![42], NonZeroU32::MIN, NonZeroU32::MIN);
+        let dynamic = DynamicImage::from(luma.clone());
+        let incompatible = Image::<u16, 1>::try_from(dynamic).unwrap_err();
+        assert_eq!(incompatible.image, DynamicImage::from(luma));
+    }
 }
