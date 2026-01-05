@@ -8,8 +8,7 @@ use crate::{Image, ImageChannel, PixelType, pixel::DynamicSize};
 
 /// Image with number of channels and their types only known at runtime
 ///
-/// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel U8 and the other f32) in the future
-/// It currently only allows casting back to Image to access the data
+/// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel u8 and the other f32)
 #[derive(Debug, Clone, PartialEq)]
 pub struct DynamicImage {
     channels: Vec<DynamicImageChannel>,
@@ -114,15 +113,15 @@ impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 #[error("IncompatibleImageError: {image:?} {reason:?}")]
-pub struct IncompatibleImageError {
-    pub image: DynamicImage,
+pub struct IncompatibleImageError<TInput> {
+    pub image: TInput,
     #[allow(dead_code)]
-    reason: IncompatibleImageErrorReason,
+    pub(crate) reason: IncompatibleImageErrorReason,
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
-enum IncompatibleImageErrorReason {
+pub(crate) enum IncompatibleImageErrorReason {
     Comptime {
         pixel_dimensions: NonZeroU8,
         pixel_kind: &'static str,
@@ -139,7 +138,7 @@ enum IncompatibleImageErrorReason {
 }
 
 impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHANNELS> {
-    type Error = IncompatibleImageError;
+    type Error = IncompatibleImageError<DynamicImage>;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
         from_image_iter(value.channels.into_iter())
@@ -149,7 +148,7 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHA
 impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a DynamicImage>
     for Image<T, CHANNELS>
 {
-    type Error = IncompatibleImageError;
+    type Error = IncompatibleImageError<DynamicImage>;
 
     fn try_from(value: &'a DynamicImage) -> Result<Self, Self::Error> {
         from_image_iter(value.clone().channels.into_iter())
@@ -158,7 +157,7 @@ impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a 
 
 fn from_image_iter<T: PixelType, const CHANNELS: usize>(
     mut value: impl Iterator<Item = DynamicImageChannel>,
-) -> Result<Image<T, CHANNELS>, IncompatibleImageError> {
+) -> Result<Image<T, CHANNELS>, IncompatibleImageError<DynamicImage>> {
     let mut incompatible_image = Ok(());
     let mut prev_image_size = None;
 
@@ -203,7 +202,10 @@ fn from_image_iter<T: PixelType, const CHANNELS: usize>(
         MaybeUninit::uninit()
     });
     match incompatible_image {
-        Ok(()) => Ok(all.map(|x| unsafe { x.assume_init() }).into()),
+        Ok(()) => Ok(all
+            .map(|x| unsafe { x.assume_init() })
+            .try_into()
+            .expect("Preconditions are checked already")),
         Err((initialized_indices, (error_image, reason))) => Err(IncompatibleImageError {
             image: DynamicImage {
                 channels: all

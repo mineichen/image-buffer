@@ -5,7 +5,9 @@ use std::{
 };
 
 use crate::{
+    DynamicImage, IncompatibleImageError,
     channel::{ImageChannel, calc_pixel_len_flat},
+    dynamic::IncompatibleImageErrorReason,
     pixel::{PixelType, PixelTypePrimitive},
     unwrap_usize_to_nonzero_u8,
 };
@@ -328,9 +330,26 @@ impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
     }
 }
 
-impl<T: PixelType, const CHANNELS: usize> From<[ImageChannel<T>; CHANNELS]> for Image<T, CHANNELS> {
-    fn from(channels: [ImageChannel<T>; CHANNELS]) -> Self {
-        Self(channels)
+impl<T: PixelType, const CHANNELS: usize> TryFrom<[ImageChannel<T>; CHANNELS]>
+    for Image<T, CHANNELS>
+{
+    type Error = IncompatibleImageError<[ImageChannel<T>; CHANNELS]>;
+    fn try_from(channels: [ImageChannel<T>; CHANNELS]) -> Result<Self, Self::Error> {
+        let _assert_not_empty = const { unwrap_usize_to_nonzero_u8(CHANNELS) };
+
+        let mut iter = channels.iter().map(|x| x.dimensions());
+        let first = iter
+            .next()
+            .expect("Checked at comptime via _assert_not_empty");
+        let first_diff = iter.find(|x| first != *x);
+        if let Some(x) = first_diff {
+            return Err(IncompatibleImageError {
+                image: channels,
+                reason: IncompatibleImageErrorReason::MixedImageSizes { a: first, b: x },
+            });
+        } else {
+            Ok(Self(channels))
+        }
     }
 }
 
