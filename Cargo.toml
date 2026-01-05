@@ -12,3 +12,4 @@ categories = ["multimedia::images", "graphics", "computer-vision", "data-structu
 
 [dependencies]
 thiserror = "2"
+image_0_25 = { version = "0.25", package = "image", optional = true }
