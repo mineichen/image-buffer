@@ -12,6 +12,9 @@ impl<T> UnsafeImageChannel<T>
 where
     T: Clone + 'static,
 {
+    #[must_use]
+    /// # Panics
+    /// Panics if the buffer size is not compatible with the `width`, `height` and `pixel_elements`.
     pub fn new_arc(
         input: Arc<[T]>,
         width: NonZeroU32,

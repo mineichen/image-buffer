@@ -25,7 +25,7 @@ impl std::fmt::Display for IntoDynamicImage0_25Error {
 
 impl std::fmt::Debug for IntoDynamicImage0_25Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -42,7 +42,7 @@ pub enum IntoDynamicImage0_25ErrorReason {
     NonExhaustive,
 }
 
-/// Only fails, if image::Image.{width/height}() is 0
+/// Only fails, if `image::Image.{width/height}()` is 0
 impl TryFrom<DynamicImage> for crate::DynamicImage {
     type Error = IntoDynamicImage0_25Error;
 

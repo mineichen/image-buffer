@@ -20,6 +20,9 @@ pub trait PixelTypePrimitive:
     Clone + PartialEq + Send + Sync + 'static + crate::seal::SealedPrimitive
 {
     fn into_runtime_channel(i: ImageChannel<DynamicSize<Self>>) -> DynamicImageChannel;
+
+    /// # Errors
+    /// Returns `Err` if the dynamic image channel is not compatible with the pixel type.
     fn try_from_dynamic_image(
         channel: DynamicImageChannel,
     ) -> Result<ImageChannel<DynamicSize<Self>>, DynamicImageChannel>;

@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    DynamicImage, IncompatibleImageError,
+    IncompatibleImageError,
     channel::{ImageChannel, calc_pixel_len_flat},
     dynamic::IncompatibleImageErrorReason,
     pixel::{PixelType, PixelTypePrimitive},
@@ -24,6 +24,9 @@ impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
+    /// # Panics
+    /// Panics if the buffer size is not compatible with the width and height.
+    #[must_use]
     pub fn new_vec_flat(mut input: Vec<T::Primitive>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T: PixelType,
@@ -337,15 +340,15 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<[ImageChannel<T>; CHANNELS]>
     fn try_from(channels: [ImageChannel<T>; CHANNELS]) -> Result<Self, Self::Error> {
         let _assert_not_empty = const { unwrap_usize_to_nonzero_u8(CHANNELS) };
 
-        let mut iter = channels.iter().map(|x| x.dimensions());
+        let mut iter = channels.iter().map(ImageChannel::dimensions);
         let a = iter
             .next()
             .expect("Checked at comptime via _assert_not_empty");
         if let Some(b) = iter.find(|x| a != *x) {
-            return Err(IncompatibleImageError {
+            Err(IncompatibleImageError {
                 image: channels,
                 reason: IncompatibleImageErrorReason::MixedImageSizes { a, b },
-            });
+            })
         } else {
             Ok(Self(channels))
         }
