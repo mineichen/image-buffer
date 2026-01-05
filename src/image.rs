@@ -338,14 +338,13 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<[ImageChannel<T>; CHANNELS]>
         let _assert_not_empty = const { unwrap_usize_to_nonzero_u8(CHANNELS) };
 
         let mut iter = channels.iter().map(|x| x.dimensions());
-        let first = iter
+        let a = iter
             .next()
             .expect("Checked at comptime via _assert_not_empty");
-        let first_diff = iter.find(|x| first != *x);
-        if let Some(x) = first_diff {
+        if let Some(b) = iter.find(|x| a != *x) {
             return Err(IncompatibleImageError {
                 image: channels,
-                reason: IncompatibleImageErrorReason::MixedImageSizes { a: first, b: x },
+                reason: IncompatibleImageErrorReason::MixedImageSizes { a, b },
             });
         } else {
             Ok(Self(channels))
