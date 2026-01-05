@@ -4,12 +4,29 @@ use image_0_25::{DynamicImage, GenericImageView};
 
 use crate::Image;
 
-#[derive(Debug, thiserror::Error)]
-#[error("Cannot convert {image:?} into DynamicImage: {reason:?}")]
+#[derive(thiserror::Error)]
 #[non_exhaustive]
 pub struct IntoDynamicImage0_25Error {
     pub image: DynamicImage,
     pub reason: IntoDynamicImage0_25ErrorReason,
+}
+
+impl std::fmt::Display for IntoDynamicImage0_25Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Cannot convert {}x{} image into DynamicImage: {}",
+            self.image.width(),
+            self.image.height(),
+            self.reason
+        )
+    }
+}
+
+impl std::fmt::Debug for IntoDynamicImage0_25Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -31,7 +48,7 @@ impl TryFrom<DynamicImage> for crate::DynamicImage {
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
         let (width, height) = value.dimensions();
-        let expected_size = width as usize * height as usize;
+        let width_times_height = width as usize * height as usize;
         let width = match NonZeroU32::try_from(width) {
             Ok(width) => width,
             Err(e) => {
@@ -53,43 +70,59 @@ impl TryFrom<DynamicImage> for crate::DynamicImage {
         };
         Ok(match value {
             DynamicImage::ImageLuma8(x) => {
-                Image::<u8, 1>::new_vec(extract_vec(x, expected_size)?, width, height).into()
+                Image::<u8, 1>::new_vec(extract_vec(x, width_times_height)?, width, height).into()
             }
             DynamicImage::ImageLuma16(x) => {
-                Image::<u16, 1>::new_vec(extract_vec(x, expected_size)?, width, height).into()
+                Image::<u16, 1>::new_vec(extract_vec(x, width_times_height)?, width, height).into()
             }
-            DynamicImage::ImageLumaA8(x) => {
-                Image::<[u8; 2], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
-            DynamicImage::ImageLumaA16(x) => {
-                Image::<[u16; 2], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
-            DynamicImage::ImageRgb8(x) => {
-                Image::<[u8; 3], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
-            DynamicImage::ImageRgb16(x) => {
-                Image::<[u16; 3], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
-            DynamicImage::ImageRgb32F(x) => {
-                Image::<[f32; 3], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
-            DynamicImage::ImageRgba8(x) => {
-                Image::<[u8; 4], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
-            DynamicImage::ImageRgba16(x) => {
-                Image::<[u16; 4], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
-            DynamicImage::ImageRgba32F(x) => {
-                Image::<[f32; 4], 1>::new_vec_flat(extract_vec(x, expected_size)?, width, height)
-                    .into()
-            }
+            DynamicImage::ImageLumaA8(x) => Image::<[u8; 2], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
+            DynamicImage::ImageLumaA16(x) => Image::<[u16; 2], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
+            DynamicImage::ImageRgb8(x) => Image::<[u8; 3], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
+            DynamicImage::ImageRgb16(x) => Image::<[u16; 3], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
+            DynamicImage::ImageRgb32F(x) => Image::<[f32; 3], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
+            DynamicImage::ImageRgba8(x) => Image::<[u8; 4], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
+            DynamicImage::ImageRgba16(x) => Image::<[u16; 4], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
+            DynamicImage::ImageRgba32F(x) => Image::<[f32; 4], 1>::new_vec_flat(
+                extract_vec(x, width_times_height)?,
+                width,
+                height,
+            )
+            .into(),
             _ => {
                 return Err(IntoDynamicImage0_25Error {
                     image: value,
@@ -102,17 +135,18 @@ impl TryFrom<DynamicImage> for crate::DynamicImage {
 
 fn extract_vec<TPixel: image_0_25::Pixel>(
     image: image_0_25::ImageBuffer<TPixel, Vec<TPixel::Subpixel>>,
-    expected_size: usize,
+    width_times_height: usize,
 ) -> Result<Vec<TPixel::Subpixel>, IntoDynamicImage0_25Error>
 where
     DynamicImage: From<image_0_25::ImageBuffer<TPixel, Vec<TPixel::Subpixel>>>,
 {
     let actual = image.len();
-    if actual != expected_size {
+    let expected = width_times_height * TPixel::CHANNEL_COUNT as usize;
+    if actual != expected {
         return Err(IntoDynamicImage0_25Error {
             image: image.into(),
             reason: IntoDynamicImage0_25ErrorReason::IncompatibleBufferSize {
-                expected: expected_size,
+                expected: width_times_height,
                 actual,
             },
         });
@@ -127,8 +161,16 @@ mod tests {
     use image_0_25::DynamicImage;
 
     #[test]
-    fn test_try_from_dynamic_image() {
+    fn test_try_from_dynamic_luma_image() {
         let image = DynamicImage::new_luma8(100, 100);
+        let dynamic_image = crate::DynamicImage::try_from(image).unwrap();
+        assert_eq!(dynamic_image[0].width().get(), 100);
+        assert_eq!(dynamic_image[0].height().get(), 100);
+    }
+
+    #[test]
+    fn test_try_from_dynamic_rgb_image() {
+        let image = DynamicImage::new_rgb16(100, 100);
         let dynamic_image = crate::DynamicImage::try_from(image).unwrap();
         assert_eq!(dynamic_image[0].width().get(), 100);
         assert_eq!(dynamic_image[0].height().get(), 100);
