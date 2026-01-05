@@ -103,7 +103,10 @@ impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<
 {
     fn from(value: Image<TPixel, CHANNELS>) -> Self {
         DynamicImage {
-            channels: value.0.into_iter().map(ImageChannel::into).collect(),
+            channels: <[ImageChannel<TPixel>; CHANNELS]>::from(value)
+                .into_iter()
+                .map(ImageChannel::into)
+                .collect(),
         }
     }
 }
@@ -200,7 +203,7 @@ fn from_image_iter<T: PixelType, const CHANNELS: usize>(
         MaybeUninit::uninit()
     });
     match incompatible_image {
-        Ok(()) => Ok(Image(all.map(|x| unsafe { x.assume_init() }))),
+        Ok(()) => Ok(all.map(|x| unsafe { x.assume_init() }).into()),
         Err((initialized_indices, (error_image, reason))) => Err(IncompatibleImageError {
             image: DynamicImage {
                 channels: all
