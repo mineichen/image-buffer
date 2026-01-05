@@ -12,6 +12,7 @@ use crate::channel::calc_pixel_len_flat;
 mod arc;
 mod channel;
 mod dynamic;
+mod external;
 mod pixel;
 mod pixel_elements;
 mod shared_vec;
@@ -19,6 +20,8 @@ mod vec;
 
 pub use channel::ImageChannel;
 pub use dynamic::{DynamicImage, DynamicImageChannel, IncompatibleImageError};
+#[cfg(feature = "image_0_25")]
+pub use external::*;
 pub use pixel::{DynamicSize, PixelType, PixelTypePrimitive};
 
 pub type LumaImage<T> = Image<T, 1>;

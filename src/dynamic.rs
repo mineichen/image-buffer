@@ -78,6 +78,24 @@ impl DynamicImageChannel {
             DynamicImageChannel::F32(x) => x.dimensions(),
         }
     }
+
+    #[must_use]
+    pub fn width(&self) -> NonZeroU32 {
+        match self {
+            DynamicImageChannel::U8(x) => x.width(),
+            DynamicImageChannel::U16(x) => x.width(),
+            DynamicImageChannel::F32(x) => x.width(),
+        }
+    }
+
+    #[must_use]
+    pub fn height(&self) -> NonZeroU32 {
+        match self {
+            DynamicImageChannel::U8(x) => x.height(),
+            DynamicImageChannel::U16(x) => x.height(),
+            DynamicImageChannel::F32(x) => x.height(),
+        }
+    }
 }
 
 impl<TPixel: PixelType + Send + Sync + Clone, const CHANNELS: usize> From<Image<TPixel, CHANNELS>>
