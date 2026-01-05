@@ -5,6 +5,9 @@ use crate::channel::{ChannelFactory, ImageChannelVTable, UnsafeImageChannel, cal
 struct VecFactory;
 
 impl<T: 'static> UnsafeImageChannel<T> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the buffer size is not compatible with the width and height.
     pub fn new_vec(
         input: Vec<T>,
         width: NonZeroU32,
