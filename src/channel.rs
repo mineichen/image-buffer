@@ -261,6 +261,24 @@ impl<TP: RuntimePixelType> ImageChannel<TP> {
     }
 }
 
+impl<T: PixelTypePrimitive> ImageChannel<DynamicSize<T>> {
+    /// Try to view this dynamically-sized pixel channel as a statically-sized `TP` pixel channel.
+    ///
+    /// Returns `Some(&ImageChannel<TP>)` if the runtime `pixel_elements` matches `TP::ELEMENTS`,
+    /// otherwise returns `None`.
+    #[must_use]
+    pub fn try_cast<TP: PixelType<Primitive = T>>(&self) -> Option<&ImageChannel<TP>> {
+        if self.pixel_elements() == TP::ELEMENTS {
+            // Safety: `ImageChannel<...>` is a thin wrapper around `UnsafeImageChannel<T>`.
+            // With `TP::Primitive = T`, the representation is identical; `pixel_elements` check
+            // ensures the typed view is consistent.
+            Some(unsafe { &*(std::ptr::from_ref(self).cast::<ImageChannel<TP>>()) })
+        } else {
+            None
+        }
+    }
+}
+
 impl<TP: RuntimePixelType> Debug for ImageChannel<TP>
 where
     TP::Primitive: std::any::Any,
@@ -371,7 +389,25 @@ pub(crate) trait ChannelFactory<T: 'static> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{DynamicImage, Image};
+
     use super::*;
+
+    #[test]
+    fn try_cast_dynamic_size_channel() {
+        let size = NonZeroU32::MIN;
+        let ch = ImageChannel::<[u8; 3]>::new_vec(vec![[1u8, 2, 3]], size, size);
+        let image: Image<[u8; 3], 1> = [ch].try_into().unwrap();
+        let dyn_image: DynamicImage = image.into();
+        let DynamicImageChannel::U8(dyn_u8_ch) = &dyn_image[0] else {
+            panic!("Expected DynamicImageChannel::U8");
+        };
+        let as_rgb = dyn_u8_ch.try_cast::<[u8; 3]>().unwrap();
+        assert_eq!(as_rgb.buffer(), &[[1u8, 2, 3]]);
+
+        assert!(dyn_u8_ch.try_cast::<u8>().is_none());
+        assert!(dyn_u8_ch.try_cast::<[u8; 4]>().is_none());
+    }
 
     #[test]
     fn miri_create_and_clear_vec_image_channel() {

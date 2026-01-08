@@ -1,3 +1,6 @@
+
+- Allow trying to cast DynamicImageChannel<DynamicSize<T>> to DynamicImageChannel<T>
+
 # 0.2.0
 
 - Introduce ImageChannel, which represents 1 channel in a Image
