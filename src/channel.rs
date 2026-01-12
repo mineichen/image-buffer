@@ -396,7 +396,9 @@ mod tests {
     #[test]
     fn try_cast_dynamic_size_channel() {
         let size = NonZeroU32::MIN;
-        let ch = ImageChannel::<[u8; 3]>::new_vec(vec![[1u8, 2, 3]], size, size);
+        let data = vec![[1u8, 2, 3]];
+        let data_ptr = data.as_ptr() as usize;
+        let ch = ImageChannel::<[u8; 3]>::new_vec(data, size, size);
         let image: Image<[u8; 3], 1> = [ch].try_into().unwrap();
         let dyn_image: DynamicImage = image.into();
         let DynamicImageChannel::U8(dyn_u8_ch) = &dyn_image[0] else {
@@ -404,6 +406,11 @@ mod tests {
         };
         let as_rgb = dyn_u8_ch.try_cast::<[u8; 3]>().unwrap();
         assert_eq!(as_rgb.buffer(), &[[1u8, 2, 3]]);
+        assert_eq!(
+            as_rgb.buffer().as_ptr() as usize,
+            data_ptr,
+            "Should share the buffer"
+        );
 
         assert!(dyn_u8_ch.try_cast::<u8>().is_none());
         assert!(dyn_u8_ch.try_cast::<[u8; 4]>().is_none());

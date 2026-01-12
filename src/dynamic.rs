@@ -15,6 +15,14 @@ pub struct DynamicImage {
 }
 
 impl DynamicImage {
+    pub fn from_channels(
+        first: DynamicImageChannel,
+        rest: impl IntoIterator<Item = DynamicImageChannel>,
+    ) -> Self {
+        Self {
+            channels: std::iter::once(first).chain(rest).collect(),
+        }
+    }
     /// `DynamicImage` always has at least one channel, so this never panics
     #[must_use]
     pub fn first(&self) -> &DynamicImageChannel {
