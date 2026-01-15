@@ -32,7 +32,11 @@ impl DynamicImage {
     /// `DynamicImage` always has at least one channel, so this never panics
     #[must_use]
     pub fn last(&self) -> &DynamicImageChannel {
-        &self.channels[self.len() - 1]
+        &self.channels[self.channels.len() - 1]
+    }
+
+    pub fn len(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.channels.len()).unwrap()
     }
 }
 
