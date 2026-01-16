@@ -13,6 +13,8 @@ use crate::{
 
 /// Represents a plane of a image. In a Planar RGB image, this could be the R, G, or B channel
 /// Interleaved RGB images have a single channel, which is a array of pixels (TP: [u8; 3])
+// Repr transparent is important for casting between ImageChannel and UnsafeImageChannel
+#[repr(transparent)]
 pub struct ImageChannel<TP: RuntimePixelType>(UnsafeImageChannel<TP::Primitive>);
 
 pub trait BorrowableImageChannel:
@@ -193,6 +195,22 @@ impl<TP: PixelType> TryFrom<DynamicImageChannel> for ImageChannel<TP> {
             Err(<TP::Primitive as PixelTypePrimitive>::into_runtime_channel(
                 typed,
             ))
+        }
+    }
+}
+
+impl<TP: PixelType> TryFrom<&DynamicImageChannel> for &ImageChannel<TP> {
+    type Error = ();
+
+    fn try_from(value: &DynamicImageChannel) -> Result<Self, Self::Error> {
+        let typed =
+            <TP::Primitive as PixelTypePrimitive>::try_from_dynamic_image_ref(value).ok_or(())?;
+
+        if typed.0.pixel_elements == TP::ELEMENTS {
+            // Safety: ImageChannel is repr(transparent), so we are allowed to transmute between them
+            Ok(unsafe { std::mem::transmute(&typed.0) })
+        } else {
+            Err(())
         }
     }
 }

@@ -4,7 +4,7 @@ use std::{
     num::{NonZeroU8, NonZeroU32, NonZeroUsize},
 };
 
-use crate::{Image, ImageChannel, PixelType, pixel::DynamicSize};
+use crate::{Image, ImageChannel, ImageRef, PixelType, pixel::DynamicSize};
 
 /// Image with number of channels and their types and dimensions only known at runtime
 /// There are no guarantees that the types or dimensions of channels match. See `ImageChannels` for more information.
@@ -136,6 +136,7 @@ pub struct IncompatibleImageError<TInput> {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub(crate) enum IncompatibleImageErrorReason {
+    // Todo: Rename me to something more descriptive
     Comptime {
         pixel_dimensions: NonZeroU8,
         pixel_kind: &'static str,
@@ -155,83 +156,110 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<DynamicImage> for Image<T, CHA
     type Error = IncompatibleImageError<DynamicImage>;
 
     fn try_from(value: DynamicImage) -> Result<Self, Self::Error> {
-        from_image_iter(value.channels.into_iter())
-    }
-}
+        let mut value = value.channels.into_iter();
+        let mut incompatible_image = Ok(());
+        let mut prev_image_size = None;
 
-impl<'a, T: PixelType + Send + Sync + Clone, const CHANNELS: usize> TryFrom<&'a DynamicImage>
-    for Image<T, CHANNELS>
-{
-    type Error = IncompatibleImageError<DynamicImage>;
-
-    fn try_from(value: &'a DynamicImage) -> Result<Self, Self::Error> {
-        from_image_iter(value.clone().channels.into_iter())
-    }
-}
-
-fn from_image_iter<T: PixelType, const CHANNELS: usize>(
-    mut value: impl Iterator<Item = DynamicImageChannel>,
-) -> Result<Image<T, CHANNELS>, IncompatibleImageError<DynamicImage>> {
-    let mut incompatible_image = Ok(());
-    let mut prev_image_size = None;
-
-    let all: [_; CHANNELS] = std::array::from_fn(|i| {
-        if incompatible_image.is_ok() {
-            incompatible_image = Err((
-                i,
-                match value.next() {
-                    Some(dynamic) => match ImageChannel::try_from(dynamic) {
-                        Ok(typed) => {
-                            let b = typed.dimensions();
-                            match prev_image_size {
-                                Some(a) if a != b => (
-                                    Some(typed.into()),
-                                    IncompatibleImageErrorReason::MixedImageSizes { a, b },
-                                ),
-                                _ => {
-                                    prev_image_size = Some(typed.dimensions());
-                                    return MaybeUninit::new(typed);
+        let all: [_; CHANNELS] = std::array::from_fn(|i| {
+            if incompatible_image.is_ok() {
+                incompatible_image = Err((
+                    i,
+                    match value.next() {
+                        Some(dynamic) => match ImageChannel::try_from(dynamic) {
+                            Ok(typed) => {
+                                let b = typed.dimensions();
+                                match prev_image_size {
+                                    Some(a) if a != b => (
+                                        Some(typed.into()),
+                                        IncompatibleImageErrorReason::MixedImageSizes { a, b },
+                                    ),
+                                    _ => {
+                                        prev_image_size = Some(typed.dimensions());
+                                        return MaybeUninit::new(typed);
+                                    }
                                 }
                             }
-                        }
-                        Err(dynamic) => (
-                            Some(dynamic),
-                            IncompatibleImageErrorReason::Comptime {
-                                pixel_dimensions: T::ELEMENTS,
-                                pixel_kind: std::any::type_name::<T>(),
-                                buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
+                            Err(dynamic) => (
+                                Some(dynamic),
+                                IncompatibleImageErrorReason::Comptime {
+                                    pixel_dimensions: T::ELEMENTS,
+                                    pixel_kind: std::any::type_name::<T>(),
+                                    buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
+                                },
+                            ),
+                        },
+                        None => (
+                            None,
+                            IncompatibleImageErrorReason::RequiresMoreChannels {
+                                expected: const { crate::unwrap_usize_to_nonzero_u8(CHANNELS) },
+                                actual: crate::unwrap_usize_to_nonzero_u8(i),
                             },
                         ),
                     },
-                    None => (
-                        None,
-                        IncompatibleImageErrorReason::RequiresMoreChannels {
-                            expected: const { crate::unwrap_usize_to_nonzero_u8(CHANNELS) },
-                            actual: crate::unwrap_usize_to_nonzero_u8(i),
-                        },
-                    ),
+                ));
+            }
+            MaybeUninit::uninit()
+        });
+        match incompatible_image {
+            Ok(()) => Ok(all
+                .map(|x| unsafe { x.assume_init() })
+                .try_into()
+                .expect("Preconditions are checked already")),
+            Err((initialized_indices, (error_image, reason))) => Err(IncompatibleImageError {
+                image: DynamicImage {
+                    channels: all
+                        .into_iter()
+                        .take(initialized_indices)
+                        .map(|x| unsafe { x.assume_init() }.into())
+                        .chain(error_image)
+                        .chain(value)
+                        .collect(),
                 },
-            ));
+                reason,
+            }),
         }
-        MaybeUninit::uninit()
-    });
-    match incompatible_image {
-        Ok(()) => Ok(all
-            .map(|x| unsafe { x.assume_init() })
-            .try_into()
-            .expect("Preconditions are checked already")),
-        Err((initialized_indices, (error_image, reason))) => Err(IncompatibleImageError {
-            image: DynamicImage {
-                channels: all
-                    .into_iter()
-                    .take(initialized_indices)
-                    .map(|x| unsafe { x.assume_init() }.into())
-                    .chain(error_image)
-                    .chain(value)
-                    .collect(),
-            },
-            reason,
-        }),
+    }
+}
+
+impl<'a, T: PixelType, const CHANNELS: usize> TryFrom<&'a DynamicImage>
+    for ImageRef<'a, T, CHANNELS>
+{
+    type Error = IncompatibleImageError<&'a DynamicImage>;
+
+    fn try_from(value: &'a DynamicImage) -> Result<Self, Self::Error> {
+        let mut result = Ok(());
+        let mut iter = value.channels.iter();
+        let channels = std::array::from_fn(|i| {
+            if result.is_ok() {
+                result = if let Some(next) = iter.next() {
+                    match <&ImageChannel<T>>::try_from(next) {
+                        Ok(typed) => {
+                            return MaybeUninit::new(typed);
+                        }
+                        Err(_e) => Err(IncompatibleImageErrorReason::Comptime {
+                            pixel_dimensions: T::ELEMENTS,
+                            pixel_kind: std::any::type_name::<T>(),
+                            buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
+                        }),
+                    }
+                } else {
+                    Err(IncompatibleImageErrorReason::RequiresMoreChannels {
+                        expected: const { crate::unwrap_usize_to_nonzero_u8(CHANNELS) },
+                        actual: crate::unwrap_usize_to_nonzero_u8(i),
+                    })
+                }
+            };
+            MaybeUninit::uninit()
+        });
+        result
+            .and_then(|_| {
+                <ImageRef<'a, T, CHANNELS>>::try_from(channels.map(|x| unsafe { x.assume_init() }))
+                    .map_err(|x: IncompatibleImageError<[&ImageChannel<T>; CHANNELS]>| x.reason)
+            })
+            .map_err(|reason| IncompatibleImageError {
+                image: value,
+                reason,
+            })
     }
 }
 
@@ -292,7 +320,7 @@ mod tests {
         // Verify both can be converted back to the same image
         let luma_back: Image<u8, 1> = dynamic.try_into().unwrap();
         {
-            let ref_luma: Image<u8, 1> = (&cloned).try_into().unwrap();
+            let ref_luma: ImageRef<u8, 1> = (&cloned).try_into().unwrap();
             assert_eq!(ref_luma.dimensions(), (width, height));
         }
         let luma_cloned: Image<u8, 1> = cloned.try_into().unwrap();
