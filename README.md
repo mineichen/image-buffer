@@ -15,8 +15,8 @@ This crate provides utilities functions to go from one representation to the oth
 
 ## Channels
 
-Channels are composeable building blocks for Image. If you have a special Image kind, where channels are not uniform,
-you should
+[ImageChannel] is a composeable building block for [Image]. If you have a special Image kind, where channels are not uniform,
+feel encouraged to add your own typed Image, which implement `TryFrom<DynamicImage>` and `Into<DynamicImage>`.
 
 ## Typed Images
 
@@ -43,18 +43,19 @@ let image: Image<u8, 3> = imbuf::Image::new_vec(pixel_data, NonZeroU32::MIN, Non
 let dynamic = DynamicImage::from(image);
 let dynamic_clone = dynamic.clone();
 {
-    assert_eq!(1, dynamic.last().width().get());
+    assert_eq!(1, dynamic.last().width().get(), "DynamicImage alwas contains >=1 channels");
     let untyped_channel = dynamic.into_iter().next().unwrap();
     let mut typed_channel = ImageChannel::<u8>::try_from(untyped_channel).unwrap();
-    assert_eq!(42, typed_channel.buffer()[0]);
-    assert_eq!(data_addr, typed_channel.buffer().as_ptr());
+    assert_eq!(42, typed_channel.buffer()[0], "Value of the first channel is 0");
+    assert_eq!(data_addr, typed_channel.buffer().as_ptr(), "shared pointer reuses the buffer");
     assert_ne!(data_addr, typed_channel.make_mut().as_ptr(), "dynamic_clone prevents mut buffer reuse");
 }
 let mut typed: Image<u8, 3> = dynamic_clone.try_into()?;
 let [r, g, b] = typed.make_mut();
 r[0] = 0;
 assert_eq!(data_addr, r.as_ptr(), "dynamic went out of scope, so buffer can be reused");
-assert_eq!(imbuf::Image::new_vec(vec![0, 1, 2], NonZeroU32::MIN, NonZeroU32::MIN), typed, "can be compared");
+let expected = imbuf::Image::new_vec(vec![0, 1, 2], NonZeroU32::MIN, NonZeroU32::MIN);
+assert_eq!(expected, typed, "images with different buffer can be compared");
 
 # Ok(())
 # }

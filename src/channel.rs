@@ -205,7 +205,7 @@ impl<TP: PixelType> From<ImageChannel<TP>> for DynamicImageChannel {
 }
 
 impl<TP: RuntimePixelType> ImageChannel<TP> {
-    /// Create an `ImageChannel` from an `UnsafeImageChannel` (used internally)
+    /// Create an [ImageChannel] from an [UnsafeImageChannel] (used internally)
     #[must_use]
     pub(crate) fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<TP::Primitive>) -> Self {
         Self(unsafe_channel)
@@ -317,7 +317,7 @@ where
 unsafe impl<TP: RuntimePixelType> Send for ImageChannel<TP> where TP::Primitive: Send {}
 unsafe impl<TP: RuntimePixelType> Sync for ImageChannel<TP> where TP::Primitive: Sync {}
 
-/// `VTable` for `ImageChannel`
+/// `VTable` for [ImageChannel]
 /// Reasons for not using the Bytes crate:
 /// - Ability to have non static Images (`Image<u8, 1>` could become `ImageRef<'static, u8, 1>` in the future)
 /// - Beign ABI-Stable and thus sharable between dylibs

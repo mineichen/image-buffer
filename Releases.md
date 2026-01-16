@@ -1,4 +1,3 @@
-
 - Allow trying to cast DynamicImageChannel<DynamicSize<T>> to DynamicImageChannel<T>
 
 # 0.2.0
