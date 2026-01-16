@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     fmt::{self, Debug, Formatter},
     num::{NonZeroU8, NonZeroU32},
     sync::Arc,
@@ -11,6 +12,24 @@ use crate::{
 };
 
 pub struct ImageChannel<TP: RuntimePixelType>(UnsafeImageChannel<TP::Primitive>);
+
+pub trait BorrowableImageChannel:
+    Borrow<ImageChannel<Self::Pixel>> + crate::seal::SealedImageChannel
+{
+    type Pixel: PixelType;
+}
+
+impl<T: PixelType> BorrowableImageChannel for ImageChannel<T> {
+    type Pixel = T;
+}
+
+impl<T: PixelType> BorrowableImageChannel for &ImageChannel<T> {
+    type Pixel = T;
+}
+
+impl<T: PixelType> BorrowableImageChannel for &mut ImageChannel<T> {
+    type Pixel = T;
+}
 
 impl<TP: RuntimePixelType> Clone for ImageChannel<TP> {
     fn clone(&self) -> Self {

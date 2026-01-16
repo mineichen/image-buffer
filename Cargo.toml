@@ -17,5 +17,3 @@ image_0_25 = { version = "0.25", default-features = false, package = "image", op
 [dev-dependencies]
 image_0_25 = { version = "0.25", default-features = false, package = "image", features = ["png"] }
 
-[features]
-default = ["image_0_25"]

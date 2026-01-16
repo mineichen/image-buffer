@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     fmt::{self, Debug, Formatter},
     num::NonZeroU32,
     sync::Arc,
@@ -6,19 +7,28 @@ use std::{
 
 use crate::{
     IncompatibleImageError,
-    channel::{ImageChannel, calc_pixel_len_flat},
+    channel::{BorrowableImageChannel, ImageChannel, calc_pixel_len_flat},
     dynamic::IncompatibleImageErrorReason,
-    pixel::{PixelType, PixelTypePrimitive},
+    pixel::{PixelType, PixelTypePrimitive, RuntimePixelType},
     unwrap_usize_to_nonzero_u8,
 };
 
+pub type Image<T, const CHANNELS: usize> = ImageChannels<[ImageChannel<T>; CHANNELS]>;
+pub type ImageRef<'a, T, const CHANNELS: usize> = ImageChannels<&'a [ImageChannel<T>; CHANNELS]>;
+pub type ImageRefMut<'a, T, const CHANNELS: usize> =
+    ImageChannels<&'a mut [ImageChannel<T>; CHANNELS]>;
+
+/// Represents a image, where all channels share the same width, height
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct Image<T: PixelType, const CHANNELS: usize>([ImageChannel<T>; CHANNELS]);
+pub struct ImageChannels<T>(T);
 
-impl<T: PixelType, const CHANNELS: usize> PartialEq for Image<T, CHANNELS> {
+impl<T: BorrowableImageChannel, const CHANNELS: usize> PartialEq for ImageChannels<[T; CHANNELS]> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.iter().zip(other.0.iter()).all(|(a, b)| a == b)
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .all(|(a, b)| a.borrow() == b.borrow())
     }
 }
 
@@ -85,36 +95,6 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
         self.0
     }
 
-    /// Returns the number of pixels in each image channel
-    #[must_use]
-    pub const fn len_per_channel(&self) -> usize {
-        self.0[0].len()
-    }
-
-    #[must_use]
-    pub const fn len_flat_per_channel(&self) -> usize {
-        self.0[0].len_flat()
-    }
-
-    #[must_use]
-    pub const fn buffers(&self) -> [&[T]; CHANNELS] {
-        let mut uninit = [&[] as &[T]; CHANNELS];
-        let mut i = 0;
-        while i < CHANNELS {
-            uninit[i] = self.0[i].buffer();
-            i += 1;
-        }
-
-        uninit
-    }
-
-    /// # Panics
-    /// Panics if there are fewer channels than expected.
-    pub fn make_mut(&mut self) -> [&mut [T]; CHANNELS] {
-        let mut iter = self.0.iter_mut();
-        std::array::from_fn(|_| iter.next().unwrap().make_mut())
-    }
-
     #[must_use]
     pub fn into_vec(mut self) -> Vec<T>
     where
@@ -136,27 +116,6 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
             }
             result
         }
-    }
-
-    #[must_use]
-    pub const fn width(&self) -> NonZeroU32 {
-        // All channels have the same height (validated at construction)
-        // CHANNELS is always > 0
-        self.0[0].width()
-    }
-
-    #[must_use]
-    pub const fn height(&self) -> NonZeroU32 {
-        // All channels have the same height (validated at construction)
-        // CHANNELS is always > 0
-        self.0[0].height()
-    }
-
-    #[must_use]
-    pub const fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
-        // All channels have the same height (validated at construction)
-        // CHANNELS is always > 0
-        self.0[0].dimensions()
     }
 
     #[must_use]
@@ -214,26 +173,82 @@ impl<const CHANNELS: usize, T: PixelType> Image<T, CHANNELS> {
     }
 }
 
+impl<T: BorrowableImageChannel + BorrowMut<ImageChannel<T::Pixel>>, const CHANNELS: usize>
+    ImageChannels<[T; CHANNELS]>
+{
+    #[allow(clippy::missing_panics_doc)]
+    pub fn make_mut(&mut self) -> [&mut [T::Pixel]; CHANNELS] {
+        let mut iter = self.0.iter_mut();
+        std::array::from_fn(|_| iter.next().unwrap().borrow_mut().make_mut())
+    }
+}
+impl<T: BorrowableImageChannel, const CHANNELS: usize> ImageChannels<[T; CHANNELS]> {
+    #[must_use]
+    pub fn width(&self) -> NonZeroU32 {
+        // All channels have the same height (validated at construction)
+        // CHANNELS is always > 0
+        self.0[0].borrow().width()
+    }
+
+    #[must_use]
+    pub fn height(&self) -> NonZeroU32 {
+        // All channels have the same height (validated at construction)
+        // CHANNELS is always > 0
+        self.0[0].borrow().height()
+    }
+
+    #[must_use]
+    pub fn dimensions(&self) -> (NonZeroU32, NonZeroU32) {
+        // All channels have the same height (validated at construction)
+        // CHANNELS is always > 0
+        self.0[0].borrow().dimensions()
+    }
+    /// Returns the number of pixels in each image channel
+    #[must_use]
+    pub fn len_per_channel(&self) -> usize {
+        self.0[0].borrow().len()
+    }
+
+    #[must_use]
+    pub fn len_per_channel_flat(&self) -> usize {
+        self.0[0].borrow().len_flat()
+    }
+
+    #[must_use]
+    pub fn buffers(&self) -> [&[T::Pixel]; CHANNELS] {
+        let mut uninit = [&[] as &[T::Pixel]; CHANNELS];
+        let mut i = 0;
+        while i < CHANNELS {
+            uninit[i] = self.0[i].borrow().buffer();
+            i += 1;
+        }
+
+        uninit
+    }
+}
+
 impl<T> Image<T, 1>
 where
     T: PixelType,
 {
-    #[must_use]
-    pub const fn buffer(&self) -> &[T] {
-        self.0[0].buffer()
-    }
-
-    #[must_use]
-    pub const fn buffer_flat(&self) -> &[T::Primitive] {
-        self.0[0].buffer_flat()
-    }
-
     pub fn new_arc(input: Arc<[T]>, width: NonZeroU32, height: NonZeroU32) -> Self
     where
         T::Primitive: Clone,
     {
         let channel = ImageChannel::new_arc(input, width, height);
         Self([channel])
+    }
+}
+
+impl<T: BorrowableImageChannel> ImageChannels<[T; 1]> {
+    #[must_use]
+    pub fn buffer(&self) -> &[T::Pixel] {
+        self.0[0].borrow().buffer()
+    }
+
+    #[must_use]
+    pub fn buffer_flat(&self) -> &[<T::Pixel as RuntimePixelType>::Primitive] {
+        self.0[0].borrow().buffer_flat()
     }
 }
 
@@ -322,7 +337,7 @@ impl<const PIXEL_ELEMENTS: usize, T: PixelTypePrimitive> Image<[T; PIXEL_ELEMENT
     }
 }
 
-impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
+impl<T: BorrowableImageChannel, const CHANNELS: usize> Debug for ImageChannels<[T; CHANNELS]> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Image")
             .field("width", &self.width())
@@ -333,14 +348,14 @@ impl<T: PixelType, const CHANNELS: usize> Debug for Image<T, CHANNELS> {
     }
 }
 
-impl<T: PixelType, const CHANNELS: usize> TryFrom<[ImageChannel<T>; CHANNELS]>
-    for Image<T, CHANNELS>
+impl<T: BorrowableImageChannel, const CHANNELS: usize> TryFrom<[T; CHANNELS]>
+    for ImageChannels<[T; CHANNELS]>
 {
-    type Error = IncompatibleImageError<[ImageChannel<T>; CHANNELS]>;
-    fn try_from(channels: [ImageChannel<T>; CHANNELS]) -> Result<Self, Self::Error> {
+    type Error = IncompatibleImageError<[T; CHANNELS]>;
+    fn try_from(channels: [T; CHANNELS]) -> Result<Self, Self::Error> {
         let _assert_not_empty = const { unwrap_usize_to_nonzero_u8(CHANNELS) };
 
-        let mut iter = channels.iter().map(ImageChannel::dimensions);
+        let mut iter = channels.iter().map(|x| x.borrow().dimensions());
         let a = iter
             .next()
             .expect("Checked at comptime via _assert_not_empty");
@@ -355,8 +370,10 @@ impl<T: PixelType, const CHANNELS: usize> TryFrom<[ImageChannel<T>; CHANNELS]>
     }
 }
 
-impl<T: PixelType, const CHANNELS: usize> From<Image<T, CHANNELS>> for [ImageChannel<T>; CHANNELS] {
-    fn from(value: Image<T, CHANNELS>) -> Self {
+impl<T: BorrowableImageChannel, const CHANNELS: usize> From<ImageChannels<[T; CHANNELS]>>
+    for [T; CHANNELS]
+{
+    fn from(value: ImageChannels<[T; CHANNELS]>) -> Self {
         value.0
     }
 }

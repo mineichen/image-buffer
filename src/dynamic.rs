@@ -35,6 +35,8 @@ impl DynamicImage {
         &self.channels[self.channels.len() - 1]
     }
 
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn len(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.channels.len()).unwrap()
     }

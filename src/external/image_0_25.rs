@@ -50,7 +50,9 @@ pub enum IntoDynamicRefImage0_25Error {
     },
 }
 
-impl<'a> DynamicRefImage0_25<'a> {
+impl DynamicRefImage0_25<'_> {
+    /// # Errors
+    /// Forwards errors of `image::write_to`
     pub fn write_to<W: std::io::Write + std::io::Seek>(
         &self,
         mut buffer: W,
@@ -326,7 +328,7 @@ where
     ImageBuffer::from_raw(width, height, buffer).expect("Incompatible buffer size")
 }
 
-fn ref_image<'a, P, T>(width: u32, height: u32, buffer: &'a [T]) -> ImageBuffer<P, &'a [T]>
+fn ref_image<P, T>(width: u32, height: u32, buffer: &[T]) -> ImageBuffer<P, &[T]>
 where
     P: image_0_25::Pixel<Subpixel = T>,
 {
