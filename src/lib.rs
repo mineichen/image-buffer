@@ -17,7 +17,7 @@ pub use channel::{BorrowableImageChannel, ImageChannel, ImageChannelVTable, Unsa
 pub use dynamic::{DynamicImage, DynamicImageChannel, IncompatibleImageError};
 #[cfg(feature = "image_0_25")]
 pub use external::*;
-pub use image::{Image, ImageChannels, ImageRef, ImageRefMut};
+pub use image::{Image, ImageChannels, ImageMut, ImageRef};
 pub use pixel::{DynamicSize, PixelType, PixelTypePrimitive};
 
 #[deprecated(

@@ -215,6 +215,22 @@ impl<TP: PixelType> TryFrom<&DynamicImageChannel> for &ImageChannel<TP> {
     }
 }
 
+impl<TP: PixelType> TryFrom<&mut DynamicImageChannel> for &mut ImageChannel<TP> {
+    type Error = ();
+
+    fn try_from(value: &mut DynamicImageChannel) -> Result<Self, Self::Error> {
+        let typed =
+            <TP::Primitive as PixelTypePrimitive>::try_from_dynamic_image_mut(value).ok_or(())?;
+
+        if typed.0.pixel_elements == TP::ELEMENTS {
+            // Safety: ImageChannel is repr(transparent), so we are allowed to transmute between them
+            Ok(unsafe { std::mem::transmute(&mut typed.0) })
+        } else {
+            Err(())
+        }
+    }
+}
+
 impl<TP: PixelType> From<ImageChannel<TP>> for DynamicImageChannel {
     fn from(value: ImageChannel<TP>) -> Self {
         let flat_channel: ImageChannel<DynamicSize<TP::Primitive>> = ImageChannel(value.0);

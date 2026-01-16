@@ -4,7 +4,7 @@ use std::{
     num::{NonZeroU8, NonZeroU32, NonZeroUsize},
 };
 
-use crate::{Image, ImageChannel, ImageRef, PixelType, pixel::DynamicSize};
+use crate::{Image, ImageChannel, ImageMut, ImageRef, PixelType, pixel::DynamicSize};
 
 /// Image with number of channels and their types and dimensions only known at runtime
 /// There are no guarantees that the types or dimensions of channels match. See `ImageChannels` for more information.
@@ -263,11 +263,84 @@ impl<'a, T: PixelType, const CHANNELS: usize> TryFrom<&'a DynamicImage>
     }
 }
 
+impl<'a, T: PixelType, const CHANNELS: usize> TryFrom<&'a mut DynamicImage>
+    for ImageMut<'a, T, CHANNELS>
+{
+    type Error = IncompatibleImageError<&'a mut DynamicImage>;
+
+    fn try_from(value: &'a mut DynamicImage) -> Result<Self, Self::Error> {
+        let mut result = Ok(());
+        let mut iter = value.channels.iter_mut();
+        let channels = std::array::from_fn(|i| {
+            if result.is_ok() {
+                result = if let Some(next) = iter.next() {
+                    match <&mut ImageChannel<T>>::try_from(next) {
+                        Ok(typed) => {
+                            return MaybeUninit::new(typed);
+                        }
+                        Err(_e) => Err(IncompatibleImageErrorReason::Comptime {
+                            pixel_dimensions: T::ELEMENTS,
+                            pixel_kind: std::any::type_name::<T>(),
+                            buffer_dimensions: const { NonZeroUsize::new(CHANNELS).unwrap() },
+                        }),
+                    }
+                } else {
+                    Err(IncompatibleImageErrorReason::RequiresMoreChannels {
+                        expected: const { crate::unwrap_usize_to_nonzero_u8(CHANNELS) },
+                        actual: crate::unwrap_usize_to_nonzero_u8(i),
+                    })
+                }
+            };
+            MaybeUninit::uninit()
+        });
+        result
+            .and_then(|_| {
+                <ImageMut<'a, T, CHANNELS>>::try_from(channels.map(|x| unsafe { x.assume_init() }))
+                    .map_err(|x: IncompatibleImageError<[&mut ImageChannel<T>; CHANNELS]>| x.reason)
+            })
+            .map_err(|reason| IncompatibleImageError {
+                image: value,
+                reason,
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU32;
 
     use super::*;
+
+    #[test]
+    fn borrow_from_mut_dynamic_image() {
+        let pixel_data = vec![1];
+        let pixel_data_ptr = pixel_data.as_ptr() as usize;
+        let mut image = DynamicImage::from(Image::<u8, 1>::new_vec(
+            pixel_data,
+            NonZeroU32::MIN,
+            NonZeroU32::MIN,
+        ));
+        let mut image_back: ImageMut<'_, u8, 1> = (&mut image).try_into().unwrap();
+
+        assert_eq!(pixel_data_ptr, image_back.make_mut()[0].as_ptr() as usize);
+    }
+
+    #[test]
+    fn borrow_from_different_size_mut_dynamic_image() {
+        let mut dynamic = DynamicImage::from(Image::<u8, 2>::new_vec(
+            vec![0, 1],
+            NonZeroU32::MIN,
+            NonZeroU32::MIN,
+        ));
+        dynamic[1] = ImageChannel::<u8>::new_vec(
+            vec![0, 1],
+            NonZeroU32::MIN,
+            const { NonZeroU32::new(2).unwrap() },
+        )
+        .into();
+
+        ImageMut::<u8, 2>::try_from(&mut dynamic).unwrap_err();
+    }
 
     #[test]
     fn create_from_luma_u8() {

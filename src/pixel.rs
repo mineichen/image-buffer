@@ -30,6 +30,9 @@ pub trait PixelTypePrimitive:
     fn try_from_dynamic_image_ref(
         channel: &DynamicImageChannel,
     ) -> Option<&ImageChannel<DynamicSize<Self>>>;
+    fn try_from_dynamic_image_mut(
+        channel: &mut DynamicImageChannel,
+    ) -> Option<&mut ImageChannel<DynamicSize<Self>>>;
 }
 
 impl PixelTypePrimitive for u8 {
@@ -50,6 +53,16 @@ impl PixelTypePrimitive for u8 {
     fn try_from_dynamic_image_ref(
         channel: &DynamicImageChannel,
     ) -> Option<&ImageChannel<DynamicSize<Self>>> {
+        if let DynamicImageChannel::U8(channel) = channel {
+            Some(channel)
+        } else {
+            None
+        }
+    }
+
+    fn try_from_dynamic_image_mut(
+        channel: &mut DynamicImageChannel,
+    ) -> Option<&mut ImageChannel<DynamicSize<Self>>> {
         if let DynamicImageChannel::U8(channel) = channel {
             Some(channel)
         } else {
@@ -80,6 +93,16 @@ impl PixelTypePrimitive for u16 {
             None
         }
     }
+
+    fn try_from_dynamic_image_mut(
+        channel: &mut DynamicImageChannel,
+    ) -> Option<&mut ImageChannel<DynamicSize<Self>>> {
+        if let DynamicImageChannel::U16(channel) = channel {
+            Some(channel)
+        } else {
+            None
+        }
+    }
 }
 
 impl PixelTypePrimitive for f32 {
@@ -99,6 +122,16 @@ impl PixelTypePrimitive for f32 {
     fn try_from_dynamic_image_ref(
         channel: &DynamicImageChannel,
     ) -> Option<&ImageChannel<DynamicSize<Self>>> {
+        if let DynamicImageChannel::F32(channel) = channel {
+            Some(channel)
+        } else {
+            None
+        }
+    }
+
+    fn try_from_dynamic_image_mut(
+        channel: &mut DynamicImageChannel,
+    ) -> Option<&mut ImageChannel<DynamicSize<Self>>> {
         if let DynamicImageChannel::F32(channel) = channel {
             Some(channel)
         } else {

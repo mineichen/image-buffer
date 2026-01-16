@@ -15,10 +15,10 @@ use crate::{
 
 pub type Image<T, const CHANNELS: usize> = ImageChannels<[ImageChannel<T>; CHANNELS]>;
 pub type ImageRef<'a, T, const CHANNELS: usize> = ImageChannels<[&'a ImageChannel<T>; CHANNELS]>;
-pub type ImageRefMut<'a, T, const CHANNELS: usize> =
+pub type ImageMut<'a, T, const CHANNELS: usize> =
     ImageChannels<[&'a mut ImageChannel<T>; CHANNELS]>;
 
-/// Represents a image, where all channels share the same width, height. You usually want to use its typedef versions [`Image`], [`ImageRef`], [`ImageRefMut`] instead.
+/// Represents a image, where all channels share the same width, height. You usually want to use its typedef versions [`Image`], [`ImageRef`], [`ImageMut`] instead.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct ImageChannels<T>(T);
