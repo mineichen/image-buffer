@@ -2,7 +2,7 @@
 
 # This crate provides flexible image buffers
 
-- Allows transforming known Images (e.g. RGB32F) to typeless DynamicImages and back (without a single buffer copy)
+- Allows transforming known [`Images`](ImageChannels) (e.g. RGB32F) to typeless [`DynamicImages`](DynamicImage) and back (without a single buffer copy)
 - Ability to support buffers from other libraries like "opencv" without copying buffers
 - Copy on write capability, so buffers can be reused if the internal representation allows it
 - FFI compatible
@@ -15,7 +15,7 @@ This crate provides utilities functions to go from one representation to the oth
 
 ## Channels
 
-[ImageChannel] is a composeable building block for [Image]. If you have a special Image kind, where channels are not uniform,
+[`ImageChannel`] is a composeable building block for [`Image`]. If you have a special Image kind, where channels are not uniform,
 feel encouraged to add your own typed Image, which implement `TryFrom<DynamicImage>` and `Into<DynamicImage>`.
 
 ## Typed Images

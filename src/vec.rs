@@ -67,7 +67,7 @@ pub(crate) extern "C" fn clear_vec_channel<T>(image: &mut UnsafeImageChannel<T>)
 mod tests {
     use std::num::NonZeroU32;
 
-    use crate::{Image, LumaImage};
+    use crate::Image;
 
     #[test]
     fn from_flat_vec_behaves_similar_to_from_interleaved() {
@@ -76,8 +76,8 @@ mod tests {
         let height = NonZeroU32::new(3).unwrap();
 
         let planar = Image::<u8, 3>::from_flat_interleaved(&data, (width, height));
-        let interleaved_direct = LumaImage::<[u8; 3]>::new_vec_flat(data, width, height);
-        let interleaved_from_planar = LumaImage::<[u8; 3]>::from_planar_image(&planar);
+        let interleaved_direct = Image::<[u8; 3], 1>::new_vec_flat(data, width, height);
+        let interleaved_from_planar = Image::<[u8; 3], 1>::from_planar_image(&planar);
 
         assert_eq!(
             interleaved_direct.buffer(),

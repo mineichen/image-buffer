@@ -18,7 +18,7 @@ pub type ImageRef<'a, T, const CHANNELS: usize> = ImageChannels<&'a [ImageChanne
 pub type ImageRefMut<'a, T, const CHANNELS: usize> =
     ImageChannels<&'a mut [ImageChannel<T>; CHANNELS]>;
 
-/// Represents a image, where all channels share the same width, height. You usually want to use its typedef versions [Image], [ImageRef], [ImageRefMut] instead.
+/// Represents a image, where all channels share the same width, height. You usually want to use its typedef versions [`Image`], [`ImageRef`], [`ImageRefMut`] instead.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct ImageChannels<T>(T);
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn miri_create_and_clear_vec_image() {
         let size = 2.try_into().unwrap();
-        let image = crate::LumaImage::new_vec(vec![0u8, 64u8, 128u8, 192u8], size, size);
+        let image = crate::Image::<u8, 1>::new_vec(vec![0u8, 64u8, 128u8, 192u8], size, size);
         assert_eq!(image.buffers()[0], &[0u8, 64u8, 128u8, 192u8]);
         assert_eq!(image.buffer(), &[0u8, 64u8, 128u8, 192u8]);
     }
@@ -395,8 +395,8 @@ mod tests {
     #[test]
     fn from_planar_image() {
         let two = NonZeroU32::new(2).unwrap();
-        let image = crate::RgbImagePlanar::new_vec((0..12).collect(), two, two);
-        let interleaved_image = crate::RgbImageInterleaved::from_planar_image(&image);
+        let image = crate::Image::<u8, 3>::new_vec((0..12).collect(), two, two);
+        let interleaved_image = crate::Image::<[u8; 3], 1>::from_planar_image(&image);
         assert_eq!(
             interleaved_image.buffer(),
             &[[0u8, 4, 8], [1, 5, 9,], [2, 6, 10,], [3, 7, 11]]
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn luma_from_planar() {
         let two = NonZeroU32::new(2).unwrap();
-        let image = crate::LumaImage::new_vec(vec![0u8, 64u8, 128u8, 192u8], two, two);
+        let image = crate::Image::<u8, 1>::new_vec(vec![0u8, 64u8, 128u8, 192u8], two, two);
         let planar_image = Image::<[u8; 1], 1>::from_planar_image(&image);
         assert_eq!(planar_image.buffer(), &[[0u8], [64u8], [128u8], [192u8]]);
     }
@@ -416,14 +416,14 @@ mod tests {
     fn luma_from_interleaved() {
         let two = NonZeroU32::new(2).unwrap();
         let interleaved_image =
-            crate::LumaImage::from_flat_interleaved(&[0u8, 64u8, 128u8, 192u8], (two, two));
+            crate::Image::from_flat_interleaved(&[0u8, 64u8, 128u8, 192u8], (two, two));
         assert_eq!(interleaved_image.buffers(), [[0u8, 64u8, 128u8, 192u8]]);
         assert_eq!(interleaved_image.dimensions(), (two, two));
     }
     #[test]
     fn from_flat_interleaved_image() {
         let two = NonZeroU32::new(2).unwrap();
-        let image: crate::RgbImagePlanar<u8> =
+        let image: crate::Image<u8, 3> =
             Image::from_flat_interleaved((0..12).collect::<Vec<_>>().as_slice(), (two, two));
         assert_eq!(
             image.buffers(),
@@ -437,7 +437,7 @@ mod tests {
         let raw = vec![0u8, 64u8, 128u8, 192u8];
         let pointer = raw[..].as_ptr();
         let size = 2.try_into().unwrap();
-        let image = crate::LumaImage::new_vec(raw, size, size);
+        let image = crate::Image::<u8, 1>::new_vec(raw, size, size);
         let to_vec = image.into_vec();
 
         // Miri seems to generate clear_vec::<const u8> for each call
@@ -456,7 +456,7 @@ mod tests {
     fn miri_clone_from_box() {
         let raw = vec![0u8, 64u8, 128u8, 192u8];
         let size = 2.try_into().unwrap();
-        let image = crate::LumaImage::new_vec(raw, size, size);
+        let image = crate::Image::<u8, 1>::new_vec(raw, size, size);
         let image2 = image.clone();
         let to_vec = image.into_vec();
         let to_vec2 = image2.into_vec();

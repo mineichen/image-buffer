@@ -239,25 +239,24 @@ fn from_image_iter<T: PixelType, const CHANNELS: usize>(
 mod tests {
     use std::num::NonZeroU32;
 
-    use crate::LumaImage;
-
     use super::*;
 
     #[test]
     fn create_from_luma_u8() {
-        let luma = LumaImage::<u8>::new_vec(vec![1], NonZeroU32::MIN, NonZeroU32::MIN);
+        let luma = Image::<u8, 1>::new_vec(vec![1], NonZeroU32::MIN, NonZeroU32::MIN);
         let dynamic = DynamicImage::from(luma);
         assert_eq!(1, dynamic.channels.len());
-        let luma_back: LumaImage<u8> = dynamic.try_into().unwrap();
+        let luma_back: Image<u8, 1> = dynamic.try_into().unwrap();
         assert_eq!(luma_back.into_vec(), vec![1]);
     }
 
     #[test]
     fn create_from_luma_rgb16_interleaved() {
-        let luma = LumaImage::new_vec(vec![[1u16, 2, 3]], NonZeroU32::MIN, NonZeroU32::MIN);
+        let luma =
+            Image::<[u16; 3], 1>::new_vec(vec![[1u16, 2, 3]], NonZeroU32::MIN, NonZeroU32::MIN);
         let dynamic = DynamicImage::from(luma);
         assert_eq!(1, dynamic.channels.len());
-        let luma_back: LumaImage<[u16; 3]> = dynamic.try_into().unwrap();
+        let luma_back: Image<[u16; 3], 1> = dynamic.try_into().unwrap();
         assert_eq!(luma_back.into_vec(), vec![[1u16, 2, 3]]);
     }
 
@@ -286,17 +285,17 @@ mod tests {
     fn clone_dynamic_image() {
         let width = NonZeroU32::new(2).unwrap();
         let height = NonZeroU32::new(2).unwrap();
-        let luma = LumaImage::<u8>::new_vec(vec![1, 2, 3, 4], width, height);
+        let luma = Image::<u8, 1>::new_vec(vec![1, 2, 3, 4], width, height);
         let dynamic = DynamicImage::from(luma);
         let cloned = dynamic.clone();
 
         // Verify both can be converted back to the same image
-        let luma_back: LumaImage<u8> = dynamic.try_into().unwrap();
+        let luma_back: Image<u8, 1> = dynamic.try_into().unwrap();
         {
             let ref_luma: Image<u8, 1> = (&cloned).try_into().unwrap();
             assert_eq!(ref_luma.dimensions(), (width, height));
         }
-        let luma_cloned: LumaImage<u8> = cloned.try_into().unwrap();
+        let luma_cloned: Image<u8, 1> = cloned.try_into().unwrap();
         let vec_back = luma_back.into_vec();
         let vec_cloned = luma_cloned.into_vec();
         assert_eq!(vec_back, vec_cloned);
@@ -305,7 +304,7 @@ mod tests {
 
     #[test]
     fn create_from_incompatible_image() {
-        let luma = LumaImage::<u8>::new_vec(vec![42], NonZeroU32::MIN, NonZeroU32::MIN);
+        let luma = Image::<u8, 1>::new_vec(vec![42], NonZeroU32::MIN, NonZeroU32::MIN);
         let dynamic = DynamicImage::from(luma.clone());
         let incompatible = Image::<u16, 1>::try_from(dynamic).unwrap_err();
         assert_eq!(incompatible.image, DynamicImage::from(luma));

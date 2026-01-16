@@ -205,7 +205,7 @@ impl<TP: PixelType> From<ImageChannel<TP>> for DynamicImageChannel {
 }
 
 impl<TP: RuntimePixelType> ImageChannel<TP> {
-    /// Create an [ImageChannel] from an [UnsafeImageChannel] (used internally)
+    /// Create an [`ImageChannel`] from an [`UnsafeImageChannel`] (used internally)
     #[must_use]
     pub(crate) fn from_unsafe_internal(unsafe_channel: UnsafeImageChannel<TP::Primitive>) -> Self {
         Self(unsafe_channel)
@@ -317,11 +317,7 @@ where
 unsafe impl<TP: RuntimePixelType> Send for ImageChannel<TP> where TP::Primitive: Send {}
 unsafe impl<TP: RuntimePixelType> Sync for ImageChannel<TP> where TP::Primitive: Sync {}
 
-/// `VTable` for [ImageChannel]
-/// Reasons for not using the Bytes crate:
-/// - Ability to have non static Images (`Image<u8, 1>` could become `ImageRef<'static, u8, 1>` in the future)
-/// - Beign ABI-Stable and thus sharable between dylibs
-/// - Initial design was much different... If the two arguments above are not enough, refactor to Bytes might be a good choice
+/// `VTable` for [`ImageChannel`] and [`UnsafeImageChannel`]
 #[repr(C)]
 pub struct ImageChannelVTable<T: 'static> {
     pub clone: unsafe extern "C" fn(&UnsafeImageChannel<T>) -> UnsafeImageChannel<T>,
@@ -329,7 +325,7 @@ pub struct ImageChannelVTable<T: 'static> {
     pub drop: unsafe extern "C" fn(&mut UnsafeImageChannel<T>),
 }
 
-/// This is only externally relevant when implementing a custom storage
+/// This is only relevant when implementing a custom storage
 /// T is usually a `PixelTypePrimitive`, but it is not enforced by the type system
 #[repr(C)]
 pub struct UnsafeImageChannel<T: 'static> {
