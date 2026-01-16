@@ -22,13 +22,13 @@ feel encouraged to add your own typed Image, which implement `TryFrom<DynamicIma
 
 The `Image` struct represents a fully typed Image to support the most common image formats.
 
-| Typed image                                             | Type                   |
-| ------------------------------------------------------- | ---------------------- |
-| RGB8 Planar                                             | `Image<u8, 3>`         |
-| RGBA8 Interleaved                                       | `Image<[u8; 4], 1>`    |
-| LUMAA32F Planar                                         | `Image<Image<f32, 2>`  |
-| LUMA8, where Buffers are borrowed                       | `ImageRef<u8, 1>`      |
-| RGB16 Interleaved, where Bufffers are mutually borrowed | `ImageMut<[u16;3], 1>` |
+| Type                   | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| `Image<u8, 3>`         | RGB8 planar                                            |
+| `Image<[u8; 4], 1>`    | RGBA8 interleaved                                      |
+| `Image<f32, 2>`        | LUMAA32F planar                                        |
+| `ImageRef<u8, 1>`      | LUMA8, where buffers are borrowed                      |
+| `ImageMut<[u16;3], 1>` | RGB16 Interleaved, where buffers are mutually borrowed |
 
 ## Example which demonstrates buffer reuse
 
