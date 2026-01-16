@@ -14,9 +14,9 @@ use crate::{
 };
 
 pub type Image<T, const CHANNELS: usize> = ImageChannels<[ImageChannel<T>; CHANNELS]>;
-pub type ImageRef<'a, T, const CHANNELS: usize> = ImageChannels<&'a [ImageChannel<T>; CHANNELS]>;
+pub type ImageRef<'a, T, const CHANNELS: usize> = ImageChannels<[&'a ImageChannel<T>; CHANNELS]>;
 pub type ImageRefMut<'a, T, const CHANNELS: usize> =
-    ImageChannels<&'a mut [ImageChannel<T>; CHANNELS]>;
+    ImageChannels<[&'a mut ImageChannel<T>; CHANNELS]>;
 
 /// Represents a image, where all channels share the same width, height. You usually want to use its typedef versions [`Image`], [`ImageRef`], [`ImageRefMut`] instead.
 #[derive(Clone)]
@@ -383,6 +383,18 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::*;
+
+    #[test]
+    fn create_image_from_borrowed_channels() {
+        let size = 2.try_into().unwrap();
+        let channel = ImageChannel::<u8>::new_vec(vec![0u8, 64u8, 128u8, 192u8], size, size);
+        let image = ImageRef::try_from([&channel]).unwrap();
+        assert_eq!(image.buffer(), &[0u8, 64u8, 128u8, 192u8]);
+        assert_eq!(image.dimensions(), (size, size));
+        assert_eq!(image.len_per_channel(), 4);
+        assert_eq!(image.len_per_channel_flat(), 4);
+        assert_eq!(image.buffers(), [[0u8, 64u8, 128u8, 192u8]]);
+    }
 
     #[test]
     fn miri_create_and_clear_vec_image() {
