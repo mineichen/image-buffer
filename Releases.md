@@ -1,4 +1,14 @@
-- Allow trying to cast DynamicImageChannel<DynamicSize<T>> to DynamicImageChannel<T>
+# 0.3.0
+
+- Allow trying to cast `DynamicImageChannel<DynamicSize<T>>` to `DynamicImageChannel<T>`
+- Breaking: Remove `From<&DynamicImage> for Image<T, N>`
+- Implement `From<&DynamicImage> for ImageRef<&T, N>`
+- Implement `From<&mut DynamicImage> for ImageRef<&mut T, N>`
+- Change `Image` to a `ImageChannels` in order to support Images with shared or mutable `ImageChannel` (beside owned, which worked before)
+- Add `Image`, `ImageRef` and `ImageMut` typedefs to `ImageChannels`
+- Add image_0_25::DynamicRefImage0_25, which implements `TryFrom<Image<T,N>>`
+- Implement `DynamicRefImage0_25::write_to` to encode a image
+- Add `DynamicImage::len`, which returns a `NonZeroUsize` instead of `slice::usize`
 
 # 0.2.0
 
