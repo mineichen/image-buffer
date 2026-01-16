@@ -6,8 +6,8 @@ use std::{
 
 use crate::{Image, ImageChannel, PixelType, pixel::DynamicSize};
 
-/// Image with number of channels and their types only known at runtime
-///
+/// Image with number of channels and their types and dimensions only known at runtime
+/// There are no guarantees that the types or dimensions of channels match. See `ImageChannels` for more information.
 /// The public interface is designed, so it can be extended to support images, which cannot be represented with Image (e.g. 1 Channel u8 and the other f32)
 #[derive(Debug, Clone, PartialEq)]
 pub struct DynamicImage {

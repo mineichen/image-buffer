@@ -11,6 +11,8 @@ use crate::{
     pixel_elements::PixelSize,
 };
 
+/// Represents a plane of a image. In a Planar RGB image, this could be the R, G, or B channel
+/// Interleaved RGB images have a single channel, which is a array of pixels (TP: [u8; 3])
 pub struct ImageChannel<TP: RuntimePixelType>(UnsafeImageChannel<TP::Primitive>);
 
 pub trait BorrowableImageChannel:
