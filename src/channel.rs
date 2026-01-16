@@ -222,7 +222,7 @@ impl<TP: RuntimePixelType> ImageChannel<TP> {
     }
 
     #[must_use]
-    pub fn primitive_into_vec(self) -> Vec<TP::Primitive>
+    pub fn into_vec_flat(self) -> Vec<TP::Primitive>
     where
         TP::Primitive: Clone,
     {

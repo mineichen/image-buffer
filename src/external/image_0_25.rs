@@ -159,163 +159,51 @@ impl<'a> TryFrom<&'a crate::DynamicImage> for DynamicRefImage0_25<'a> {
 }
 
 macro_rules! impl_from_image_ref_dynamic {
-    ($src:ty, $pixel:ty, $sub:ty, $variant:ident, $value:ident, $buffer:expr) => {
+    ($src:ty, $pixel:ty, $variant:ident) => {
         impl<'a> From<&'a Image<$src, 1>> for DynamicRefImage0_25<'a> {
-            fn from($value: &'a Image<$src, 1>) -> Self {
-                let (width, height) = $value.dimensions();
-                let buffer: &'a [$sub] = $buffer;
-                DynamicRefImage0_25::$variant(ref_image::<$pixel, $sub>(
-                    width.get(),
-                    height.get(),
-                    buffer,
-                ))
+            fn from(value: &'a Image<$src, 1>) -> Self {
+                let (width, height) = value.dimensions();
+                let buffer = value.buffer_flat();
+                DynamicRefImage0_25::$variant(ref_image(width.get(), height.get(), buffer))
             }
         }
     };
 }
 
-impl_from_image_ref_dynamic!(u8, Luma<u8>, u8, ImageLuma8, value, value.buffer());
-impl_from_image_ref_dynamic!(u16, Luma<u16>, u16, ImageLuma16, value, value.buffer());
-impl_from_image_ref_dynamic!(
-    [u8; 2],
-    LumaA<u8>,
-    u8,
-    ImageLumaA8,
-    value,
-    value.buffer_flat()
-);
-impl_from_image_ref_dynamic!(
-    [u16; 2],
-    LumaA<u16>,
-    u16,
-    ImageLumaA16,
-    value,
-    value.buffer_flat()
-);
-impl_from_image_ref_dynamic!([u8; 3], Rgb<u8>, u8, ImageRgb8, value, value.buffer_flat());
-impl_from_image_ref_dynamic!(
-    [u16; 3],
-    Rgb<u16>,
-    u16,
-    ImageRgb16,
-    value,
-    value.buffer_flat()
-);
-impl_from_image_ref_dynamic!(
-    [f32; 3],
-    Rgb<f32>,
-    f32,
-    ImageRgb32F,
-    value,
-    value.buffer_flat()
-);
-impl_from_image_ref_dynamic!(
-    [u8; 4],
-    Rgba<u8>,
-    u8,
-    ImageRgba8,
-    value,
-    value.buffer_flat()
-);
-impl_from_image_ref_dynamic!(
-    [u16; 4],
-    Rgba<u16>,
-    u16,
-    ImageRgba16,
-    value,
-    value.buffer_flat()
-);
-impl_from_image_ref_dynamic!(
-    [f32; 4],
-    Rgba<f32>,
-    f32,
-    ImageRgba32F,
-    value,
-    value.buffer_flat()
-);
+impl_from_image_ref_dynamic!(u8, Luma<u8>, ImageLuma8);
+impl_from_image_ref_dynamic!(u16, Luma<u16>, ImageLuma16);
+impl_from_image_ref_dynamic!([u8; 2], LumaA<u8>, ImageLumaA8);
+impl_from_image_ref_dynamic!([u16; 2], LumaA<u16>, ImageLumaA16);
+impl_from_image_ref_dynamic!([u8; 3], Rgb<u8>, ImageRgb8);
+impl_from_image_ref_dynamic!([u16; 3], Rgb<u16>, ImageRgb16);
+impl_from_image_ref_dynamic!([f32; 3], Rgb<f32>, ImageRgb32F);
+impl_from_image_ref_dynamic!([u8; 4], Rgba<u8>, ImageRgba8);
+impl_from_image_ref_dynamic!([u16; 4], Rgba<u16>, ImageRgba16);
+impl_from_image_ref_dynamic!([f32; 4], Rgba<f32>, ImageRgba32F);
 
 macro_rules! impl_from_image_dynamic {
-    ($src:ty, $pixel:ty, $sub:ty, $variant:ident, $value:ident, $buffer:expr) => {
+    ($src:ty, $pixel:ty, $variant:ident) => {
         impl From<Image<$src, 1>> for DynamicImage {
-            fn from($value: Image<$src, 1>) -> Self {
-                let (width, height) = $value.dimensions();
-                let buffer: Vec<$sub> = $buffer;
-                DynamicImage::$variant(image_from_raw::<$pixel, $sub>(
-                    width.get(),
-                    height.get(),
-                    buffer,
-                ))
+            fn from(value: Image<$src, 1>) -> Self {
+                let (width, height) = value.dimensions();
+                let [channel] = <[_; 1]>::from(value);
+                let buffer = channel.into_vec_flat();
+                DynamicImage::$variant(image_from_raw(width.get(), height.get(), buffer))
             }
         }
     };
 }
 
-impl_from_image_dynamic!(u8, Luma<u8>, u8, ImageLuma8, value, value.into_vec());
-impl_from_image_dynamic!(u16, Luma<u16>, u16, ImageLuma16, value, value.into_vec());
-impl_from_image_dynamic!(
-    [u8; 2],
-    LumaA<u8>,
-    u8,
-    ImageLumaA8,
-    value,
-    value.buffer_flat().to_vec()
-);
-impl_from_image_dynamic!(
-    [u16; 2],
-    LumaA<u16>,
-    u16,
-    ImageLumaA16,
-    value,
-    value.buffer_flat().to_vec()
-);
-impl_from_image_dynamic!(
-    [u8; 3],
-    Rgb<u8>,
-    u8,
-    ImageRgb8,
-    value,
-    value.buffer_flat().to_vec()
-);
-impl_from_image_dynamic!(
-    [u16; 3],
-    Rgb<u16>,
-    u16,
-    ImageRgb16,
-    value,
-    value.buffer_flat().to_vec()
-);
-impl_from_image_dynamic!(
-    [f32; 3],
-    Rgb<f32>,
-    f32,
-    ImageRgb32F,
-    value,
-    value.buffer_flat().to_vec()
-);
-impl_from_image_dynamic!(
-    [u8; 4],
-    Rgba<u8>,
-    u8,
-    ImageRgba8,
-    value,
-    value.buffer_flat().to_vec()
-);
-impl_from_image_dynamic!(
-    [u16; 4],
-    Rgba<u16>,
-    u16,
-    ImageRgba16,
-    value,
-    value.buffer_flat().to_vec()
-);
-impl_from_image_dynamic!(
-    [f32; 4],
-    Rgba<f32>,
-    f32,
-    ImageRgba32F,
-    value,
-    value.buffer_flat().to_vec()
-);
+impl_from_image_dynamic!(u8, Luma<u8>, ImageLuma8);
+impl_from_image_dynamic!(u16, Luma<u16>, ImageLuma16);
+impl_from_image_dynamic!([u8; 2], LumaA<u8>, ImageLumaA8);
+impl_from_image_dynamic!([u16; 2], LumaA<u16>, ImageLumaA16);
+impl_from_image_dynamic!([u8; 3], Rgb<u8>, ImageRgb8);
+impl_from_image_dynamic!([u16; 3], Rgb<u16>, ImageRgb16);
+impl_from_image_dynamic!([f32; 3], Rgb<f32>, ImageRgb32F);
+impl_from_image_dynamic!([u8; 4], Rgba<u8>, ImageRgba8);
+impl_from_image_dynamic!([u16; 4], Rgba<u16>, ImageRgba16);
+impl_from_image_dynamic!([f32; 4], Rgba<f32>, ImageRgba32F);
 
 /// Only fails, if `image::Image.width()` or `image::Image.height()` is 0
 impl TryFrom<DynamicImage> for crate::DynamicImage {
